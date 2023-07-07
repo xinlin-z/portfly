@@ -160,7 +160,7 @@ class trafix():
                 self.clean(sid)
         return tunnel_left + sk_left
 
-    def __init__(self, sk: sk_t, role: str, *argv) -> None:
+    def __init__(self, sk: sk_t, role: str, *argv) -> None:  # type: ignore
         self.role: str = role  # 's':server or 'c':client
 
         # set tunnel socket to nonblocking, init generators
@@ -238,7 +238,7 @@ class trafix():
             self.unreg += 1
             log.debug('[%d] unreg %d', self.port, self.unreg)
 
-    def event_pass(self, events) -> None:
+    def event_pass(self, events) -> None:  # type: ignore
         p = self.port
         for fd,_ in events:
             # new connections in server role
@@ -396,7 +396,8 @@ def server_main(saddr: tuple[str,int]) -> None:
 
 def client_main(mode: bytes,
                 setting: str,
-                saddr: tuple[str,int], x: bool) -> None:
+                saddr: tuple[str,int],
+                x: bool) -> None:
     pub_port, thost, tport = setting.strip().split(':')
 
     while True:
