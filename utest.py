@@ -1,5 +1,9 @@
 from portfly import cx, dx
 import random
+import time
+
+
+random.seed(time.time()%1000)
 
 
 for i in range(1000):
