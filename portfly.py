@@ -30,18 +30,14 @@ sk_t = socket.socket
 def cx(bmsg: bytes) -> bytes:
     a = random.randint(0,255)
     b = random.randint(0,255)
-    bmsg = bytes(c^a for c in bmsg)
-    bmsg = bytes(c^b for c in bmsg)
+    bmsg = bytes(c^b for c in bytes(c^a for c in bmsg))
     return bytes((a,)) + bmsg + bytes((b,))
 
 
 def dx(bmsg: bytes) -> bytes:
     a = bmsg[0]
     b = bmsg[-1]
-    bmsg = bmsg[1:-1]
-    bmsg = bytes(c^a for c in bmsg)
-    bmsg = bytes(c^b for c in bmsg)
-    return bmsg
+    return bytes(c^b for c in bytes(c^a for c in bmsg[1:-1]))
 
 
 def nrclose_socket(sk: sk_t) -> None:
