@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Remote Port Forwarding in pure Python featured by Non-Blocking socket
+Local/Remote Port Forwarding in pure Python featured by Non-Blocking socket
 and Event IO.
 
 Author:   xinlin-z
@@ -14,7 +14,6 @@ import selectors
 import logging as log
 import argparse
 import random
-import base64
 import multiprocessing as mp
 import threading
 import time
@@ -22,20 +21,27 @@ from typing import Iterator, Generator
 from dataclasses import dataclass
 
 
+# seed
+random.seed(time.time()%1000)
 # type alias
 sk_t = socket.socket
 
 
 def cx(bmsg: bytes) -> bytes:
-    r = random.randint
-    m = r(0,255)
-    return base64.b64encode(bytes([m]+[i^m for i in bmsg])
-                          + bytes([i^r(0,255) for i in range(m)]))
+    a = random.randint(0,255)
+    b = random.randint(0,255)
+    bmsg = bytes(c^a for c in bmsg)
+    bmsg = bytes(c^b for c in bmsg)
+    return bytes((a,)) + bmsg + bytes((b,))
 
 
 def dx(bmsg: bytes) -> bytes:
-    bmsg = base64.b64decode(bmsg)
-    return bytes([i^bmsg[0] for i in bmsg[1:len(bmsg)-bmsg[0]]])
+    a = bmsg[0]
+    b = bmsg[-1]
+    bmsg = bmsg[1:-1]
+    bmsg = bytes(c^a for c in bmsg)
+    bmsg = bytes(c^b for c in bmsg)
+    return bmsg
 
 
 def nrclose_socket(sk: sk_t) -> None:
