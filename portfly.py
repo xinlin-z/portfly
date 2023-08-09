@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 
 # seed
-random.seed(time.time()%1000)
+random.seed()
 # type alias
 sk_t = socket.socket
 

@@ -3,7 +3,7 @@ import random
 import time
 
 
-random.seed(time.time()%1000)
+random.seed()
 
 
 for i in range(1000):
