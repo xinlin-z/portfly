@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = 'portfly'
+version = '0.30'
+requires-python = '>=3.8'
+description = 'Remote/Local port forwarding in Python by TCP/UDP'
+readme = 'README.md'
+license = { file='LICENSE' }
+keywords = ['port forwarding', 'remote', 'local', 'tcp', 'udp']
+authors = [
+  { name='xinlin-z', email='' },
+]
+classifiers = [
+    'Programming Language :: Python :: 3',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: OS Independent',
+]
+
+
+[project.urls]
+homepage = 'https://github.com/xinlin-z/portfly'
+
