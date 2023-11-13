@@ -24,6 +24,8 @@ ignore =
     E231,
     # E241: multiple spaces after ','
     E241,
+    # E252: missing whitespace around parameter equals
+    E252,
     # E701: multiple statements on one line (colon)
     E701,
     # W391: blank line at end of file

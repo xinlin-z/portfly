@@ -30,13 +30,13 @@ from functools import partial
 import hashlib
 
 
-# seed
+# set random seed
 random.seed()
-# type alias
+# socket type alias
 sk_t = socket.socket
 
 
-def cx(bmsg: bytes, b64: bool=False) -> bytes:
+def cx(bmsg: bytes, b64: bool = False) -> bytes:
     """ when b64 is False, there's only one extra byte """
     a = random.randint(0,255)
     t = random.randint(65,90)
@@ -44,7 +44,7 @@ def cx(bmsg: bytes, b64: bool=False) -> bytes:
     return b64encode(b)+bytes((t,)) if b64 else b
 
 
-def dx(bmsg: bytes, b64: bool=False) -> bytes:
+def dx(bmsg: bytes, b64: bool = False) -> bytes:
     bmsg = b64decode(bmsg[:-1]) if b64 else bmsg
     a = bmsg[0]
     return bytes(c^a for c in bmsg[1:])
@@ -82,7 +82,7 @@ MSG_NC = b'\x03'
 MSG_CD = b'\x04'
 
 
-def nrclose_socket(sk: sk_t) -> None:
+def silent_close_socket(sk: sk_t) -> None:
     """ non-raise close socket """
     try:
         sk.shutdown(socket.SHUT_RDWR)
@@ -378,12 +378,12 @@ class trafix():
             log.error('[%d] exception: %s', self.port, str(e))
             log.exception(e)
             for skb in self.sdict.values():
-                nrclose_socket(skb.sk)
+                silent_close_socket(skb.sk)
         # the end
-        nrclose_socket(self.sk)
+        silent_close_socket(self.sk)
         self.sel.unregister(self.sk)
         if self.role == 's':
-            nrclose_socket(self.pserv)
+            silent_close_socket(self.pserv)
         log.warning('[%d] closed', self.port)
 
     def try_send_heartbeat(self) -> None:
@@ -414,7 +414,7 @@ class trafix():
         sk = _skb.sk
         if sk:
             self.kdict.pop(sk, None)
-            nrclose_socket(sk)
+            silent_close_socket(sk)
             self.sel.unregister(sk)
             self.unreg += 1
             log.debug('[%d] unreg %d', self.port, self.unreg)
@@ -588,7 +588,7 @@ def server_main(saddr: tuple[str,int]) -> None:
                 else:  # if transprot == b'udp':
                     config['session_type'] = 'udp'
                     config['tunnel_udp_port'] = udpport
-                    nrclose_socket(sk)
+                    silent_close_socket(sk)
                 # launching process
                 mp.Process(target=trafix, args=(config,), daemon=True).start()
                 log.warning('process launched...')
@@ -597,7 +597,7 @@ def server_main(saddr: tuple[str,int]) -> None:
         except Exception as e:
             log.error('exception %s', str(faddr))
             log.exception(e)
-            nrclose_socket(sk)
+            silent_close_socket(sk)
 
 
 def client_main(forward_mode: bytes,
@@ -663,7 +663,7 @@ def client_main(forward_mode: bytes,
                 config['session_type'] = 'udp'
                 config['tunnel_udp_ip'] = saddr[0]
                 config['tunnel_udp_port'] = udpport
-                nrclose_socket(sk)
+                silent_close_socket(sk)
             # start thread and join
             th = threading.Thread(target=trafix, args=(config,), daemon=True)
             th.start()
@@ -671,9 +671,9 @@ def client_main(forward_mode: bytes,
         except Exception as e:
             log.exception(e)
         finally:
-            nrclose_socket(sk)
+            silent_close_socket(sk)
             if forward_mode == b'L':
-                nrclose_socket(pserv)
+                silent_close_socket(pserv)
             time.sleep(8)
 
 
