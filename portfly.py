@@ -37,7 +37,8 @@ sk_t = socket.socket
 
 
 def cx(bmsg: bytes, b64: bool = False) -> bytes:
-    """ when b64 is False, there's only one extra byte """
+    """ b64=True is used for exchanging protocol msg.
+    When b64 is False, there's only one extra byte. """
     a = random.randint(0,255)
     t = random.randint(65,90)
     b = bytes((a,)) + bytes(c^a for c in bmsg)
