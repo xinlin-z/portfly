@@ -4,7 +4,7 @@
 * [Installation](#Installation)
 * [Usage](#Usage)
 
-A pure Python implementation of SSH Port Forwarding, includes
+A Python implementation of SSH Port Forwarding, includes
 remote forwarding and local forwarding, featured by
 non-blocking socket, event IO and UDP forwarding path.
 
@@ -26,8 +26,8 @@ $ pip install portfly
 
 ## Usage
 
-On server side, you need to setup portfly to listen, even udp forwarding
-path is used: 
+On server side, you need to setup portfly to listen, even for udp forwarding
+path: 
 
 ``` shell
 $ python -m portfly -s server_listen_ip:port
@@ -57,5 +57,4 @@ The extra `+` can leave the whole parameters unquoted.
 Each client process can map only one port to/from server.
 But server can be connected by many clients simultaneously.
 
-Have Fun... ^____^
 
