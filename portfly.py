@@ -63,6 +63,7 @@ HB_BASE_INTV    = 20
 BOL = 'little'  # byte order little
 BOB = 'big'     # byte order big
 START_IDX       = 0x0406A000
+CLIENT_RECONN_INTV = 8
 
 
 """
@@ -138,7 +139,7 @@ class trafix():
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
 
         if slen == plen+(1 if self.x else 0):
-            #if pt == 'A':
+            # if pt == 'A':
             #    log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
             if pt == 'D':
                 log.debug('[%d] %s %d %d -->', self.port, pt, self.uidx, plen)
@@ -372,7 +373,7 @@ class trafix():
         self.reg: int = 0
         self.unreg: int = 0
 
-        # heartbeat params and send one,
+        # set heartbeat params and send one,
         # to make udp server know its client
         self.heartbeat_time = time.time()
         self.heartbeat_max = 0
@@ -607,69 +608,42 @@ def server_main(saddr: tuple[str,int]) -> None:
             silent_close_socket(sk)
 
 
-def client_main(forward_mode: bytes,
-                transprot: bytes,
-                udpport: int,
-                mapping: str,
-                saddr: tuple[str,int],
-                x: bool) -> None:
-    listen_port, target_ip, target_port = mapping.split(':')
-    listen_port = int(listen_port)
-    target_port = int(target_port)
-
-    config = {}
-    config['is_server'] = False
-    config['listen_port'] = listen_port
-    config['target_ip'] = target_ip
-    config['target_port'] = target_port
-    config['tunnel_x'] = x
-
+def client_main(config: dict) -> None:
     while True:
         try:
             # if local port forwarding
-            if forward_mode == b'L':
-                pserv = socket.create_server(('', listen_port))
-                log.warning('port %d is ready here', listen_port)
+            if config['forward_mode'] == 'L':
+                pserv = socket.create_server(('', config['listen_port']))
+                log.warning('port %d is ready here', config['listen_port'])
+                config['listen_sk'] = pserv
             # connect server, send parameters
+            saddr = (config['server_ip'], config['server_port'])
             sk = socket.create_connection(saddr)
             sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
             sk.sendall(cxb(magic_bmsg) + b'\n')
-            sk.sendall(cxb(forward_mode) + b'\n')
-            sk.sendall(cxb(transprot) + b'\n')
-            sk.sendall(cxb(str(udpport).encode()) + b'\n')
-            if forward_mode == b'R':
-                sk.sendall(cxb(str(listen_port).encode()) + b'\n')
+            sk.sendall(cxb(config['forward_mode'].encode()) + b'\n')
+            sk.sendall(cxb(config['session_type'].encode()) + b'\n')
+            sk.sendall(cxb(str(config['tunnel_udp_port']).encode()) + b'\n')
+            if config['forward_mode'] == 'R':
+                sk.sendall(cxb(str(config['listen_port']).encode()) + b'\n')
             else:
-                sk.sendall(cxb(target_ip.encode()) + b'\n')
-                sk.sendall(cxb(str(target_port).encode()) + b'\n')
-            sk.sendall(cxb(str(int(x)).encode()) + b'\n')
+                sk.sendall(cxb(config['target_ip'].encode()) + b'\n')
+                sk.sendall(cxb(str(config['target_port']).encode()) + b'\n')
+            sk.sendall(cxb(str(int(config['tunnel_x'])).encode()) + b'\n')
             # read the only reply
             rf = sk.makefile('rb')
             if dxb(rf.readline().strip()) == magic_breply:
-                if forward_mode == b'R':
+                if config['forward_mode'] == 'R':
                   log.warning('connect server %s ok, port %d is ready there',
-                                                    str(saddr), listen_port)
+                                            str(saddr), config['listen_port'])
                 else:
                   log.warning('connect server %s ok', str(saddr))
             else:
                 raise ValueError('magic_breply is not match')
-            # thread parameters
-            if forward_mode == b'R':
-                config['role'] = 'c'
-                config['listen_port'] = -1
-                config['target_ip'] = target_ip
-                config['target_port'] = target_port
-            else:  # if mode == b'L':
-                config['role'] = 's'
-                config['listen_sk'] = pserv
-                config['listen_port'] = listen_port
-            if transprot == b'tcp':
-                config['session_type'] = 'tcp'
+            # tcp tunnel socket
+            if config['session_type'] == 'tcp':
                 config['tunnel_tcp_sk'] = sk
-            else:  # transprot == b'udp':
-                config['session_type'] = 'udp'
-                config['tunnel_udp_ip'] = saddr[0]
-                config['tunnel_udp_port'] = udpport
+            else:
                 silent_close_socket(sk)
             # start thread and join
             th = threading.Thread(target=trafix, args=(config,), daemon=True)
@@ -679,17 +653,15 @@ def client_main(forward_mode: bytes,
             log.exception(e)
         finally:
             silent_close_socket(sk)
-            if forward_mode == b'L':
+            if config['forward_mode'] == 'L':
                 silent_close_socket(pserv)
-            time.sleep(8)
-
-
-_VER = 'portfly V0.31'
+            time.sleep(CLIENT_RECONN_INTV)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-V', '--version', action='version', version=_VER)
+    parser.add_argument('-V', '--version',
+                            action='version', version='portfly V0.31')
     parser.add_argument('--log', choices=('INFO','DEBUG'), default='WARNING')
     parser.add_argument('-x', action='store_true',
                         help='apply simple encryption to traffic')
@@ -706,23 +678,30 @@ if __name__ == '__main__':
     log.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
                     level=eval('log.'+args.log))
 
-    # python portfly.py -s server_listen_ip:port
+    # $ python portfly.py -s [--log INFO|DEBUG] server_listen_ip:port
     if args.server:
         if args.x or args.L or args.udpport:
             log.warning('-x, -L and -u are ignored in server side')
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)))
-    # python portfly.py -c [-x] [-L] [-u port] mapping_port:target_ip:port+server_ip:port
+    # $ python portfly.py -c [-x] [-L] [-u port] [--log INFO|DEBUG] \
+    #                           mapping_port:target_ip:port+server_ip:port
     else:
+        config = {}
+        config['is_server'] = False
+        config['tunnel_x'] = args.x
+        config['session_type'] = 'udp' if args.udpport else 'tcp'
+        config['forward_mode'] = 'L' if args.L else 'R'
+        config['role'] = 's' if args.L else 'c'
         mapping, saddr = args.settings.strip().split('+')
+        listen_port, target_ip, target_port = mapping.split(':')
+        config['listen_port'] = int(listen_port)
+        config['target_ip'] = target_ip
+        config['target_port'] = int(target_port)
         server_ip, server_port = saddr.strip().split(':')
-        forward_mode = b'L' if args.L else b'R'
-        transprot = b'udp' if args.udpport else b'tcp'
-        client_main(forward_mode,
-                    transprot,
-                    int(args.udpport) if args.udpport else 0,
-                    mapping.strip(),
-                    (server_ip,int(server_port)),
-                    args.x)
-
+        config['server_ip'] = server_ip
+        config['server_port'] = int(server_port)
+        config['tunnel_udp_ip'] = server_ip
+        config['tunnel_udp_port'] = int(args.udpport) if args.udpport else 0
+        client_main(config)
 
