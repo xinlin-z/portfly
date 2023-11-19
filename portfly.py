@@ -55,7 +55,7 @@ cxb = partial(cx, b64=True)
 dxb = partial(dx, b64=True)
 
 
-SK_IO_CHUNK_LEN = 4096
+SK_IO_CHUNK_LEN = 4096*2
 UDP_RECV_LEN    = 1472  # 1500-20-8
 UDP_SEND_LEN    = 1444
 MAX_STREAM_ID   = 0xFFFFFFFF
@@ -325,9 +325,10 @@ class trafix():
         self.sel = selectors.DefaultSelector()
         self.sel.register(self.sk, selectors.EVENT_READ)
 
-        # retrive argv and set accordingly
+        #
         self.port = int(config['listen_port'])
         self.x = config['tunnel_x']
+        self.md5 = config['tunnel_md5']
         if self.role == 's':
             self.pserv = config['listen_sk']
             self.sid = 1          # sid, stream id
@@ -580,10 +581,13 @@ def server_main(saddr: tuple[str,int]) -> None:
                     log.warning('target addr %s:%s', target_ip, target_port)
                 x = eval((dxb(rf.readline().strip())).decode())
                 log.warning('encryption %d', x)
+                md5 = eval((dxb(rf.readline().strip())).decode())
+                log.warning('md5 %d', x)
                 # reply
                 sk.sendall(cxb(magic_breply) + b'\n')
                 # process parameters
                 config['tunnel_x'] = x
+                config['tunnel_md5'] = md5
                 if forward_mode == b'R':
                     config['role'] = 's'
                     config['listen_sk'] = pserv
@@ -633,6 +637,7 @@ def client_main(config: dict) -> None:
                 sk.sendall(cxb(config['target_ip'].encode()) + b'\n')
                 sk.sendall(cxb(str(config['target_port']).encode()) + b'\n')
             sk.sendall(cxb(str(int(config['tunnel_x'])).encode()) + b'\n')
+            sk.sendall(cxb(str(int(config['tunnel_md5'])).encode()) + b'\n')
             # read the only reply
             rf = sk.makefile('rb')
             if dxb(rf.readline().strip()) == magic_breply:
@@ -675,24 +680,27 @@ if __name__ == '__main__':
                         help='local port forwarding')
     parser.add_argument('-u', '--udpport', type=int,
                         help='specify the udp port for tunneling')
+    parser.add_argument('--md5', action='store_true',
+                        help='enhanced integrity check by md5')
     parser.add_argument('settings')
     args = parser.parse_args()
 
     log.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
                     level=eval('log.'+args.log))
 
-    # $ python portfly.py -s [--log INFO|DEBUG] server_listen_ip:port
+    # $ python portfly.py -s [--log INFO|DEBUG] server_ip:port
     if args.server:
         if args.x or args.L or args.udpport:
             log.warning('-x, -L and -u are ignored in server side')
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)))
-    # $ python portfly.py -c [-x] [-L] [-u port] [--log INFO|DEBUG] \
-    #                           mapping_port:target_ip:port+server_ip:port
+    # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
+    #                               mapping_port:target_ip:port+server_ip:port
     else:
         config = {}
         config['is_server'] = False
         config['tunnel_x'] = args.x
+        config['tunnel_md5'] = args.md5
         config['session_type'] = 'udp' if args.udpport else 'tcp'
         config['forward_mode'] = 'L' if args.L else 'R'
         config['role'] = 's' if args.L else 'c'
