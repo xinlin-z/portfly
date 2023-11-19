@@ -295,42 +295,9 @@ class trafix():
             except BlockingIOError:
                 yield None, b'\x00', b''
 
-    def recv_sk_gen_conn(self, sk: sk_t) -> Iterator[bytes]:
-        """ socket nonblocking recv generator, one shot """
-        while True:
-            try:
-                data = sk.recv(SK_IO_CHUNK_LEN)
-                if len(data) == 0:
-                    raise ConnectionError('recv_sk_gen_conn recv 0')
-                yield data
-            except BlockingIOError:
-                return
-
-    def send_sk_gen_conn(self, sid: int) -> int:
-        skb = self.sdict[sid]
-        data = skb.buf
-        try:
-            while len(data):
-                if (i:=skb.sk.send(data[:SK_IO_CHUNK_LEN])) == -1:
-                    raise ConnectionError('send_sk_gen_conn send -1')
-                data = self.sdict[sid].buf = data[i:]
-        except BlockingIOError:
-            pass
-        return len(data)
-
-    def flush(self) -> int:
-        """ flush all sending socket, return left bytes number """
-        tunnel_left = self.gen_send.send((None,0))
-        sk_left = 0
-        for sid in list(self.sdict.keys()):
-            try:
-                sk_left += self.send_sk_gen_conn(sid)
-            except OSError as e:
-                log.info('[%d] sid %d down while flush',self.port,sid,str(e))
-                tunnel_left = self.gen_send.send((MSG_CD,sid))
-                self.clean(sid)
-        return tunnel_left + sk_left
-
+    ####################################
+    # __init__ as main control flow
+    ####################################
     def __init__(self, config: dict) -> None:
         self.session_type = config['session_type']
         self.role = config['role']
@@ -393,6 +360,42 @@ class trafix():
         if self.role == 's':
             silent_close_socket(self.pserv)
         log.warning('[%d] closed', self.port)
+
+    def recv_sk_gen_conn(self, sk: sk_t) -> Iterator[bytes]:
+        """ socket nonblocking recv generator, one shot """
+        while True:
+            try:
+                data = sk.recv(SK_IO_CHUNK_LEN)
+                if len(data) == 0:
+                    raise ConnectionError('recv_sk_gen_conn recv 0')
+                yield data
+            except BlockingIOError:
+                return
+
+    def send_sk_gen_conn(self, sid: int) -> int:
+        skb = self.sdict[sid]
+        data = skb.buf
+        try:
+            while len(data):
+                if (i:=skb.sk.send(data[:SK_IO_CHUNK_LEN])) == -1:
+                    raise ConnectionError('send_sk_gen_conn send -1')
+                data = self.sdict[sid].buf = data[i:]
+        except BlockingIOError:
+            pass
+        return len(data)
+
+    def flush(self) -> int:
+        """ flush all sending socket, return left bytes number """
+        tunnel_left = self.gen_send.send((None,0))
+        sk_left = 0
+        for sid in list(self.sdict.keys()):
+            try:
+                sk_left += self.send_sk_gen_conn(sid)
+            except OSError as e:
+                log.info('[%d] sid %d down while flush',self.port,sid,str(e))
+                tunnel_left = self.gen_send.send((MSG_CD,sid))
+                self.clean(sid)
+        return tunnel_left + sk_left
 
     def try_send_heartbeat(self) -> None:
         if self.heartbeat_max > 8:
@@ -474,7 +477,7 @@ class trafix():
                                 self.clean(sid)
                         # heartbeat
                         elif t == MSG_HB:
-                            log.info('[%d] recv heartbeat', p)
+                            log.debug('[%d] recv heartbeat', p)
                             self.heartbeat_max = 0
                         # data
                         else:
