@@ -38,7 +38,7 @@ sk_t = socket.socket
 
 def cx(bmsg: bytes, b64: bool = False) -> bytes:
     """ b64=True is used for exchanging protocol msg.
-    When b64 is False, there's only one extra byte. """
+    When b64 is False, there's only one extra byte ahead. """
     a = random.randint(0,255)
     t = random.randint(65,90)
     b = bytes((a,)) + bytes(c^a for c in bmsg)
@@ -100,9 +100,12 @@ class trafix():
         sk: sk_t
         buf: bytes = b''
 
-    # plt_sendto, send_sk_gen_udp, recv_sk_gen_udp are three
-    # interfaces used by UDP tunnel.
-
+    ################################
+    # UDP Tunnel layer includes:
+    # pkt_sendto
+    # send_sk_gen_udp
+    # recv_sk_gen_udp
+    ################################
     def pkt_sendto(self, pt, cont, idx, recv_max_idx=0):
         # First 2 bytes is total length, last 8 bytes is packet index.
         if pt == 'A':    # ack
@@ -244,8 +247,11 @@ class trafix():
             except BlockingIOError:
                 yield None, b'\x00', b''
 
-    # send_sk_gen an recv_sk_gen are used for tcp tunnel.
-
+    ################################
+    # TCP Tunnel layer includes:
+    # send_sk_gen
+    # recv_sk_gen
+    ################################
     def send_sk_gen(self, sk: sk_t) \
                     -> Generator[int, tuple[bytes|None,int], None]:
         """ socket nonblocking send generator """
@@ -678,8 +684,7 @@ def client_main(forward_mode: bytes,
             time.sleep(8)
 
 
-_VER = 'portfly V0.30 by xinlin-z '\
-       ' (https://github.com/xinlin-z/portfly)'
+_VER = 'portfly V0.31'
 
 
 if __name__ == '__main__':
@@ -693,8 +698,8 @@ if __name__ == '__main__':
     end_type.add_argument('-c', '--client', action='store_true')
     parser.add_argument('-L', action='store_true',
                         help='local port forwarding')
-    parser.add_argument('-u', '--udp', type=int,
-                        help='udp tunnel')
+    parser.add_argument('-u', '--udpport', type=int,
+                        help='specify the udp port for tunneling')
     parser.add_argument('settings')
     args = parser.parse_args()
 
@@ -703,7 +708,7 @@ if __name__ == '__main__':
 
     # python portfly.py -s server_listen_ip:port
     if args.server:
-        if args.x or args.L or args.udp:
+        if args.x or args.L or args.udpport:
             log.warning('-x, -L and -u are ignored in server side')
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)))
@@ -712,11 +717,10 @@ if __name__ == '__main__':
         mapping, saddr = args.settings.strip().split('+')
         server_ip, server_port = saddr.strip().split(':')
         forward_mode = b'L' if args.L else b'R'
-        transprot = b'udp' if args.udp else b'tcp'
-        udpport = int(args.udp) if args.udp else 0
+        transprot = b'udp' if args.udpport else b'tcp'
         client_main(forward_mode,
                     transprot,
-                    udpport,
+                    int(args.udpport) if args.udpport else 0,
                     mapping.strip(),
                     (server_ip,int(server_port)),
                     args.x)
