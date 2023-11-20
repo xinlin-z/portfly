@@ -108,22 +108,27 @@ class trafix():
     # recv_sk_gen_udp
     ################################
     def pkt_sendto(self, pt, cont, idx, recv_max_idx=0):
-        # First 2 bytes is total length, last 8 bytes is packet index.
-        if pt == 'A':    # ack
-            pkt = int.to_bytes(50+16-7,2,BOL) \
+        extralen = 16 if self.md5 else 0
+
+        # the first 2 bytes is total length,
+        # the last 4 bytes is packet index, if no md5 hash.
+        if pt == 'A':    # Ack
+            pkt = int.to_bytes(43+extralen,2,BOL) \
                         + b'A' \
                         + bytes(random.randint(0,255) for _ in range(32)) \
                         + int.to_bytes(recv_max_idx,4,BOL) \
                         + int.to_bytes(idx,4,BOL)
-            pkt += hashlib.md5(pkt).digest()
-        elif pt == 'D':  # data
+            if self.md5:
+                pkt += hashlib.md5(pkt).digest()
+        elif pt == 'D':  # Data
             self.uidx += 1
-            pkt = int.to_bytes(len(cont)+14+16-7,2,BOL) \
+            pkt = int.to_bytes(len(cont)+7+extralen,2,BOL) \
                         + b'D' \
                         + cont \
                         + int.to_bytes(self.uidx,4,BOL)
-            pkt += hashlib.md5(pkt).digest()
-        elif pt == 'R':  # raw, when resend
+            if self.md5:
+                pkt += hashlib.md5(pkt).digest()
+        elif pt == 'R':  # Raw, when resend
             pkt = cont
 
         # udp session, no taddr yet. The initial heartbeat.
@@ -142,10 +147,13 @@ class trafix():
             # if pt == 'A':
             #    log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
             if pt == 'D':
-                log.debug('[%d] %s %d %d -->', self.port, pt, self.uidx, plen)
+                # log.debug('[%d] %s %d %d -->', self.port, pt, self.uidx, plen)
                 self.noack[self.uidx] = pkt
             if pt == 'R':
-                idx = int.from_bytes(pkt[-4-16:-16], BOL)
+                if self.md5:
+                    idx = int.from_bytes(pkt[-4-16:-16], BOL)
+                else:
+                    idx = int.from_bytes(pkt[-4:], BOL)
                 log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
             return 1
         else:
@@ -203,10 +211,11 @@ class trafix():
                 plen = len(rd)
                 if plen>2 and int.from_bytes(rd[:2],BOL)==plen:
                     # check md5
-                    rd, md5 = rd[:-16], rd[-16:]
-                    if hashlib.md5(rd).digest() != md5:
-                        log.error('recv illegal packet, md5 wrong!')
-                        continue
+                    if self.md5:
+                        rd, md5 = rd[:-16], rd[-16:]
+                        if hashlib.md5(rd).digest() != md5:
+                            log.error('recv illegal packet, md5 wrong!')
+                            continue
                     # check type
                     t = rd[2:3]
                     if t not in (b'A',b'D'):
