@@ -259,11 +259,16 @@ class trafix():
         data = b''
         while True:
             bmsg, sid = yield len(data)
+
             if bmsg is not None:
-                if self.x: bmsg = cx(bmsg)
-                data += (len(bmsg)+8).to_bytes(4,BOL) \
-                                + sid.to_bytes(4,BOB) \
-                                + bmsg
+                if self.x:
+                    bmsg = cx(bmsg)
+                extralen = 8+16 if self.md5 else 8
+                data += (len(bmsg)+extralen).to_bytes(4,BOL) \
+                                       + sid.to_bytes(4,BOB) \
+                                       + bmsg
+                if self.md5:
+                    data += hashlib.md5(data).digest()
             try:
                 while len(data):
                     if (i:=sk.send(data[:SK_IO_CHUNK_LEN])) == -1:
@@ -286,8 +291,15 @@ class trafix():
                 while (dlen:=len(data)) > 4:
                     mlen = int.from_bytes(data[:4], BOL)
                     if dlen >= mlen:
+                        if self.md5:
+                            md5 = data[mlen-16:mlen]
+                            if md5 != hashlib.md5(data[:mlen-16]).digest():
+                                data = data[mlen:]
+                                log.error('[%d] tcp md5 error', self.port)
+                                continue
                         sid = int.from_bytes(data[4:8], BOB)
-                        msg = dx(data[8:mlen]) if self.x else data[8:mlen]
+                        msg = dx(data[8:mlen-16]) if self.x \
+                                                    else data[8:mlen-16]
                         yield sid, msg[:1], msg[1:]
                         data = data[mlen:]
                     else:
@@ -690,8 +702,8 @@ if __name__ == '__main__':
 
     # $ python portfly.py -s [--log INFO|DEBUG] server_ip:port
     if args.server:
-        if args.x or args.L or args.udpport:
-            log.warning('-x, -L and -u are ignored in server side')
+        if args.x or args.L or args.udpport or args.md5:
+            log.warning('-x, -L, -u and --md5 are all ignored in server side')
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)))
     # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
