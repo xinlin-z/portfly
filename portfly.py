@@ -291,7 +291,7 @@ class trafix():
                 while (dlen:=len(data)) > 4:
                     mlen = int.from_bytes(data[:4], BOL)
                     if dlen >= mlen:
-                        tpos = mlen
+                        dpos = mlen
                         if self.md5:
                             dpos = mlen - 16
                             md5 = data[dpos:mlen]
