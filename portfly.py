@@ -577,7 +577,6 @@ def server_main(saddr: tuple[str,int]) -> None:
 
     config = {}
     config['is_server'] = True
-
     while True:
         sk, faddr = serv.accept()
         log.warning('accept connection from %s', str(faddr))
@@ -595,7 +594,10 @@ def server_main(saddr: tuple[str,int]) -> None:
                 log.warning('udp port %d', udpport)
                 if forward_mode == b'R':
                     listen_port = int(dxb(rf.readline().strip()))
-                    pserv = socket.create_server(('', listen_port))
+                    g = eval((dxb(rf.readline().strip())).decode())
+                    log.warning('listen global %d', g)
+                    pserv = socket.create_server(('' if g else '127.0.0.1',
+                                                  listen_port))
                     log.warning('create server at port %d', listen_port)
                 else:  # forward_mode == b'L':
                     target_ip = dxb(rf.readline().strip())
@@ -642,7 +644,9 @@ def client_main(config: dict) -> None:
         try:
             # if local port forwarding
             if config['forward_mode'] == 'L':
-                pserv = socket.create_server(('', config['listen_port']))
+                pserv = socket.create_server(
+                            ('' if config['tunnel_g'] else '127.0.0.1',
+                             config['listen_port']))
                 log.warning('port %d is ready here', config['listen_port'])
                 config['listen_sk'] = pserv
             # connect server, send parameters
@@ -655,6 +659,7 @@ def client_main(config: dict) -> None:
             sk.sendall(cxb(str(config['tunnel_udp_port']).encode()) + b'\n')
             if config['forward_mode'] == 'R':
                 sk.sendall(cxb(str(config['listen_port']).encode()) + b'\n')
+                sk.sendall(cxb(str(int(config['tunnel_g'])).encode()) + b'\n')
             else:
                 sk.sendall(cxb(config['target_ip'].encode()) + b'\n')
                 sk.sendall(cxb(str(config['target_port']).encode()) + b'\n')
@@ -704,6 +709,8 @@ if __name__ == '__main__':
                         help='specify the udp port for tunneling')
     parser.add_argument('--md5', action='store_true',
                         help='enhanced integrity check by md5')
+    parser.add_argument('-g', action='store_true',
+                        help='listen at 0.0.0.0, or 127.0.0.1')
     parser.add_argument('settings')
     args = parser.parse_args()
 
@@ -713,7 +720,8 @@ if __name__ == '__main__':
     # $ python portfly.py -s [--log INFO|DEBUG] server_ip:port
     if args.server:
         if args.x or args.L or args.udpport or args.md5:
-            log.warning('-x, -L, -u and --md5 are all ignored in server side')
+            log.warning('-x, -L, -u, --md5 and -g'
+                        ' are all ignored in server side')
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)))
     # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
@@ -723,6 +731,7 @@ if __name__ == '__main__':
         config['is_server'] = False
         config['tunnel_x'] = args.x
         config['tunnel_md5'] = args.md5
+        config['tunnel_g'] = args.g
         config['session_type'] = 'udp' if args.udpport else 'tcp'
         config['forward_mode'] = 'L' if args.L else 'R'
         config['role'] = 's' if args.L else 'c'
