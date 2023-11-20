@@ -712,7 +712,7 @@ if __name__ == '__main__':
     parser.add_argument('--md5', action='store_true',
                         help='enhanced integrity check by md5')
     parser.add_argument('-g', action='store_true',
-                        help='listen at 0.0.0.0, or 127.0.0.1')
+                        help='listen at 0.0.0.0, default 127.0.0.1')
     parser.add_argument('settings')
     args = parser.parse_args()
 
