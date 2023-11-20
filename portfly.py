@@ -228,9 +228,11 @@ class trafix():
                         rmidx = int.from_bytes(rd[-8:-4], BOL)
                         log.debug('[%d] A %d %d <--',self.port,recv_idx,rmidx)
                         self.noack.pop(recv_idx, None)
+                        log.debug('[%d] pop %d', self.port, recv_idx)
                         for k in tuple(self.noack.keys()):
                             if k <= rmidx:
                                 self.noack.pop(k, None)
+                                log.debug('[%d] pop %d', self.port, k)
                     # if data
                     else:  # t == b'D':
                         log.debug('[%d] D %d %d <--', self.port,recv_idx,plen)
