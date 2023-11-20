@@ -291,15 +291,16 @@ class trafix():
                 while (dlen:=len(data)) > 4:
                     mlen = int.from_bytes(data[:4], BOL)
                     if dlen >= mlen:
+                        tpos = mlen
                         if self.md5:
-                            md5 = data[mlen-16:mlen]
-                            if md5 != hashlib.md5(data[:mlen-16]).digest():
+                            dpos = mlen - 16
+                            md5 = data[dpos:mlen]
+                            if md5 != hashlib.md5(data[:dpos]).digest():
                                 data = data[mlen:]
                                 log.error('[%d] tcp md5 error', self.port)
                                 continue
                         sid = int.from_bytes(data[4:8], BOB)
-                        msg = dx(data[8:mlen-16]) if self.x \
-                                                    else data[8:mlen-16]
+                        msg = dx(data[8:dpos]) if self.x else data[8:dpos]
                         yield sid, msg[:1], msg[1:]
                         data = data[mlen:]
                     else:
@@ -594,7 +595,7 @@ def server_main(saddr: tuple[str,int]) -> None:
                 x = eval((dxb(rf.readline().strip())).decode())
                 log.warning('encryption %d', x)
                 md5 = eval((dxb(rf.readline().strip())).decode())
-                log.warning('md5 %d', x)
+                log.warning('md5 %d', md5)
                 # reply
                 sk.sendall(cxb(magic_breply) + b'\n')
                 # process parameters
