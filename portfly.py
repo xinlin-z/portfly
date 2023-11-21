@@ -228,11 +228,9 @@ class trafix():
                         rmidx = int.from_bytes(rd[-8:-4], BOL)
                         log.debug('[%d] A %d %d <--',self.port,recv_idx,rmidx)
                         self.noack.pop(recv_idx, None)
-                        log.debug('[%d] pop %d', self.port, recv_idx)
                         for k in tuple(self.noack.keys()):
                             if k <= rmidx:
                                 self.noack.pop(k, None)
-                                log.debug('[%d] pop %d', self.port, k)
                     # if data
                     else:  # t == b'D':
                         log.debug('[%d] D %d %d <--', self.port,recv_idx,plen)
@@ -716,7 +714,7 @@ if __name__ == '__main__':
     log.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
                     level=eval('log.'+args.log))
 
-    # $ python portfly.py -s [--log INFO|DEBUG] server_ip:port
+    # $ python portfly.py -s [--log INFO|DEBUG] -k string server_ip:port
     if args.server:
         if args.x or args.L or args.udpport or args.md5:
             log.warning('-x, -L, -u, --md5 and -g'
@@ -724,7 +722,7 @@ if __name__ == '__main__':
         ip, port = args.settings.split(':')
         server_main((ip.strip(),int(port)), args.key.encode())
     # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
-    #                               mapping_port:target_ip:port+server_ip:port
+    #                     -k string mapping_port:target_ip:port+server_ip:port
     else:
         config = {}
         config['is_server'] = False
