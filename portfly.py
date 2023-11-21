@@ -679,11 +679,8 @@ def client_main(config: dict, key: bytes) -> None:
                 config['tunnel_tcp_sk'] = sk
             else:
                 silent_close_socket(sk)
-            #
+            # go
             trafix(config)
-            #th = threading.Thread(target=trafix, args=(config,), daemon=True)
-            #th.start()
-            #th.join()
         except Exception as e:
             log.exception(e)
         finally:
