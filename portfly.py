@@ -557,11 +557,6 @@ class trafix():
             self.event_pass(events)
 
 
-# tunnel init msg
-magic_bmsg = b'ask for REopening a PORT'
-magic_breply = b'Done'
-
-
 def zombie_reaper():
     while True:
         try:
@@ -571,7 +566,7 @@ def zombie_reaper():
             time.sleep(60)
 
 
-def server_main(saddr: tuple[str,int]) -> None:
+def server_main(saddr: tuple[str,int], key: bytes) -> None:
     threading.Thread(target=zombie_reaper, args=(), daemon=True).start()
     log.warning('init zombie reaper thread')
     serv = socket.create_server(saddr)
@@ -586,7 +581,8 @@ def server_main(saddr: tuple[str,int]) -> None:
         sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
         rf = sk.makefile('rb')
         try:
-            if dxb(rf.readline().strip()) == magic_bmsg:
+            keyhash = hashlib.sha256(key).digest()
+            if dxb(rf.readline().strip()) == keyhash:
                 # recv
                 forward_mode = dxb(rf.readline().strip())
                 log.warning('forwarding mode %s', forward_mode)
@@ -610,7 +606,7 @@ def server_main(saddr: tuple[str,int]) -> None:
                 md5 = eval((dxb(rf.readline().strip())).decode())
                 log.warning('md5 %d', md5)
                 # reply
-                sk.sendall(cxb(magic_breply) + b'\n')
+                sk.sendall(cxb(hashlib.sha256(keyhash[:16]).digest()) + b'\n')
                 # process parameters
                 config['tunnel_x'] = x
                 config['tunnel_md5'] = md5
@@ -641,7 +637,7 @@ def server_main(saddr: tuple[str,int]) -> None:
             silent_close_socket(sk)
 
 
-def client_main(config: dict) -> None:
+def client_main(config: dict, key: bytes) -> None:
     while True:
         try:
             # if local port forwarding
@@ -652,10 +648,11 @@ def client_main(config: dict) -> None:
                 log.warning('port %d is ready here', config['listen_port'])
                 config['listen_sk'] = pserv
             # connect server, send parameters
+            keyhash = hashlib.sha256(key).digest()
             saddr = (config['server_ip'], config['server_port'])
             sk = socket.create_connection(saddr)
             sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
-            sk.sendall(cxb(magic_bmsg) + b'\n')
+            sk.sendall(cxb(keyhash) + b'\n')
             sk.sendall(cxb(config['forward_mode'].encode()) + b'\n')
             sk.sendall(cxb(config['session_type'].encode()) + b'\n')
             sk.sendall(cxb(str(config['tunnel_udp_port']).encode()) + b'\n')
@@ -669,7 +666,7 @@ def client_main(config: dict) -> None:
             sk.sendall(cxb(str(int(config['tunnel_md5'])).encode()) + b'\n')
             # read the only reply
             rf = sk.makefile('rb')
-            if dxb(rf.readline().strip()) == magic_breply:
+            if dxb(rf.readline().strip()) == hashlib.sha256(keyhash[:16]).digest():
                 if config['forward_mode'] == 'R':
                   log.warning('connect server %s ok, port %d is ready there',
                                             str(saddr), config['listen_port'])
@@ -682,10 +679,11 @@ def client_main(config: dict) -> None:
                 config['tunnel_tcp_sk'] = sk
             else:
                 silent_close_socket(sk)
-            # start thread and join
-            th = threading.Thread(target=trafix, args=(config,), daemon=True)
-            th.start()
-            th.join()
+            #
+            trafix(config)
+            #th = threading.Thread(target=trafix, args=(config,), daemon=True)
+            #th.start()
+            #th.join()
         except Exception as e:
             log.exception(e)
         finally:
@@ -713,6 +711,8 @@ if __name__ == '__main__':
                         help='enhanced integrity check by md5')
     parser.add_argument('-g', action='store_true',
                         help='listen at 0.0.0.0, default 127.0.0.1')
+    parser.add_argument('-k', '--key', required=True,
+                        help='server access key string')
     parser.add_argument('settings')
     args = parser.parse_args()
 
@@ -725,7 +725,7 @@ if __name__ == '__main__':
             log.warning('-x, -L, -u, --md5 and -g'
                         ' are all ignored in server side')
         ip, port = args.settings.split(':')
-        server_main((ip.strip(),int(port)))
+        server_main((ip.strip(),int(port)), args.key)
     # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
     #                               mapping_port:target_ip:port+server_ip:port
     else:
