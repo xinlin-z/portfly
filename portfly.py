@@ -725,7 +725,7 @@ if __name__ == '__main__':
             log.warning('-x, -L, -u, --md5 and -g'
                         ' are all ignored in server side')
         ip, port = args.settings.split(':')
-        server_main((ip.strip(),int(port)), args.key)
+        server_main((ip.strip(),int(port)), args.key.encode())
     # $ python portfly.py -c [-x] [-L] [-u port] [--md5] [--log INFO|DEBUG] \
     #                               mapping_port:target_ip:port+server_ip:port
     else:
@@ -747,5 +747,5 @@ if __name__ == '__main__':
         config['server_port'] = int(server_port)
         config['tunnel_udp_ip'] = server_ip
         config['tunnel_udp_port'] = int(args.udpport) if args.udpport else 0
-        client_main(config)
+        client_main(config, args.key.encode())
 
