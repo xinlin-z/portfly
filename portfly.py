@@ -551,7 +551,7 @@ class trafix():
                 if bytes_left != 0:
                     time.sleep(0.1)
                 continue
-            for fd,_ in events:
+            for fd, _ in events:
                 fd.data(fd)
 
 
@@ -691,7 +691,7 @@ def client_main(config: dict, key: bytes) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-V', '--version',
-                            action='version', version='portfly V0.31')
+                            action='version', version='portfly V0.32')
     parser.add_argument('--log', choices=('INFO','DEBUG'), default='WARNING')
     parser.add_argument('-x', action='store_true',
                         help='apply simple encryption to traffic')
@@ -708,7 +708,8 @@ if __name__ == '__main__':
                         help='listen at 0.0.0.0, default 127.0.0.1')
     parser.add_argument('-k', '--key', required=True,
                         help='server access key string')
-    parser.add_argument('settings')
+    parser.add_argument('settings',
+                        help='example is in source code as comments')
     args = parser.parse_args()
 
     log.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s',
