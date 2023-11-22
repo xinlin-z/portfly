@@ -202,10 +202,10 @@ class trafix():
                 # init target addr
                 if not self.taddr:
                     self.taddr = taddr
-                    log.warning('init udp taddr %s', str(taddr))
+                    log.warning('init udp target addr %s', str(taddr))
                 # check taddr
                 elif taddr != self.taddr:
-                    log.error('different udp taddr!')
+                    log.error('udp target addr changed, packet dropped!')
                     continue
                 # deal packet
                 plen = len(rd)
@@ -345,7 +345,7 @@ class trafix():
 
         # selector
         self.sel = selectors.DefaultSelector()
-        self.sel.register(self.sk, selectors.EVENT_READ)
+        self.sel.register(self.sk, selectors.EVENT_READ, self._recv_tunnel)
 
         #
         self.port = int(config['listen_port'])
@@ -354,7 +354,9 @@ class trafix():
         if self.role == 's':
             self.pserv = config['listen_sk']
             self.sid = 1          # sid, stream id
-            self.sel.register(self.pserv, selectors.EVENT_READ)
+            self.sel.register(self.pserv,
+                              selectors.EVENT_READ,
+                              self._new_connect_role_s)
         else:
             self.target = (config['target_ip'], config['target_port'])
 
@@ -453,87 +455,84 @@ class trafix():
             self.unreg += 1
             log.debug('[%d] unreg %d', self.port, self.unreg)
 
-    def event_pass(self, events) -> None:  # type: ignore
+    def _new_connect_role_s(self, fd):
+        s, addr = self.pserv.accept()
+        self.gen_send.send((MSG_NC, self.sid))
+        log.info('[%d] accept %s, sid %d', self.port, str(addr), self.sid)
+        s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
+        s.setblocking(False)  # set nonblocking
+        self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
+        self.reg += 1
+        log.debug('[%d] reg %d', self.port, self.reg)
+        self.sdict[self.sid] = trafix.sk_buf(s)
+        self.kdict[s] = self.sid
+        self.update_sid()
+
+    def _recv_tunnel(self, fd):
         p = self.port
-        for fd,_ in events:
-            # new connections in server role
-            if self.role=='s' and fd.fileobj==self.pserv:
-                s, addr = self.pserv.accept()
-                self.gen_send.send((MSG_NC,self.sid))
-                log.info('[%d] accept %s, sid %d', p, str(addr), self.sid)
-                s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
-                s.setblocking(False)             # set nonblocking
-                self.sel.register(s, selectors.EVENT_READ)
-                self.reg += 1
-                log.debug('[%d] reg %d', self.port, self.reg)
-                self.sdict[self.sid] = trafix.sk_buf(s)
-                self.kdict[s] = self.sid
-                self.update_sid()
-            # recv from tunnel
-            elif fd.fileobj == self.sk:
-                while True:
-                    sid, t, bmsg = next(self.gen_recv)
-                    log.debug('[%d] recv from tunnel, type: %s', p, t)
-                    if sid is not None:
-                        # new connection in client role
-                        if t == MSG_NC:
-                            try:
-                                s = socket.create_connection(self.target,
-                                                             timeout=2)
-                                log.info('[%d] connect target %s ok, sid %d',
-                                         p, str(self.target), sid)
-                                s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
-                                s.setblocking(False)
-                                self.sel.register(s, selectors.EVENT_READ)
-                                self.reg += 1
-                                log.debug('[%d] reg %d', p, self.reg)
-                                self.sdict[sid] = trafix.sk_buf(s)
-                                self.kdict[s] = sid
-                            except OSError as e:
-                                log.error('[%d] connect %s failed: %s',
-                                          p, str(self.target), str(e))
-                                self.gen_send.send((MSG_CD,sid))
-                        # connection down
-                        elif t == MSG_CD:
-                            if sid in self.sdict.keys():
-                                log.info('[%d] close sid %d by peer', p, sid)
-                                self.clean(sid)
-                        # heartbeat
-                        elif t == MSG_HB:
-                            log.debug('[%d] recv heartbeat', p)
-                            self.heartbeat_max = 0
-                        # data
-                        else:
-                            assert t == MSG_ND
-                            try:
-                                if sid in self.sdict.keys():
-                                    self.sdict[sid].buf += bmsg
-                                    self.send_sk_gen_conn(sid)
-                            except OSError:
-                                log.info('[%d] sid %d is closed while send',
-                                         p, sid)
-                                self.gen_send.send((MSG_CD,sid))
-                                self.clean(sid)
-                    else:
-                        break
-            # recv from connections
-            else:
-                try:
-                    sid = self.kdict[fd.fileobj]
-                except KeyError:
-                    continue
-                gen_data = self.recv_sk_gen_conn(fd.fileobj)
-                while True:
+        while True:
+            sid, t, bmsg = next(self.gen_recv)
+            log.debug('[%d] recv from tunnel, type: %s', p, t)
+            if sid is not None:
+                # new connection in client role
+                if t == MSG_NC:
                     try:
-                        data = next(gen_data)
+                        s = socket.create_connection(self.target,
+                                                     timeout=2)
+                        log.info('[%d] connect target %s ok, sid %d',
+                                 p, str(self.target), sid)
+                        s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
+                        s.setblocking(False)
+                        self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
+                        self.reg += 1
+                        log.debug('[%d] reg %d', p, self.reg)
+                        self.sdict[sid] = trafix.sk_buf(s)
+                        self.kdict[s] = sid
                     except OSError as e:
-                        log.info('[%d] sid %d donw when recv, %s',p,sid,str(e))
+                        log.error('[%d] connect %s failed: %s',
+                                  p, str(self.target), str(e))
+                        self.gen_send.send((MSG_CD,sid))
+                # connection down
+                elif t == MSG_CD:
+                    if sid in self.sdict.keys():
+                        log.info('[%d] close sid %d by peer', p, sid)
+                        self.clean(sid)
+                # heartbeat
+                elif t == MSG_HB:
+                    log.debug('[%d] recv heartbeat', p)
+                    self.heartbeat_max = 0
+                # data
+                else:
+                    # assert t == MSG_ND
+                    try:
+                        if sid in self.sdict.keys():
+                            self.sdict[sid].buf += bmsg
+                            self.send_sk_gen_conn(sid)
+                    except OSError:
+                        log.info('[%d] sid %d is closed while send',
+                                 p, sid)
                         self.gen_send.send((MSG_CD,sid))
                         self.clean(sid)
-                        break
-                    except StopIteration:
-                        break
-                    self.gen_send.send((MSG_ND+data,sid))  # send data
+            else:
+                return
+
+    def _recv_conn(self, fd):
+        try:
+            sid = self.kdict[fd.fileobj]
+        except KeyError:
+            return
+        gen_data = self.recv_sk_gen_conn(fd.fileobj)
+        while True:
+            try:
+                data = next(gen_data)
+            except OSError as e:
+                log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
+                self.gen_send.send((MSG_CD,sid))
+                self.clean(sid)
+                break
+            except StopIteration:
+                break
+            self.gen_send.send((MSG_ND+data,sid))  # send data
 
     def loop(self) -> None:
         while True:
@@ -552,7 +551,8 @@ class trafix():
                 if bytes_left != 0:
                     time.sleep(0.1)
                 continue
-            self.event_pass(events)
+            for fd,_ in events:
+                fd.data(fd)
 
 
 def zombie_reaper():
