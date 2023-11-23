@@ -228,7 +228,7 @@ class trafix():
                         rmidx = int.from_bytes(rd[-8:-4], BOL)
                         log.debug('[%d] A %d %d <--',self.port,recv_idx,rmidx)
                         self.noack.pop(recv_idx, None)
-                        for k in tuple(self.noack.keys()):
+                        for k in list(self.noack.keys()):
                             if k <= rmidx:
                                 self.noack.pop(k, None)
                     # if data
