@@ -717,7 +717,7 @@ def client_main(config: dict, key: bytes) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-V', '--version',
-                            action='version', version='portfly V0.32')
+                            action='version', version='portfly V0.33')
     parser.add_argument('--log', choices=('INFO','DEBUG'), default='WARNING')
     parser.add_argument('-x', action='store_true',
                         help='apply simple encryption to traffic')
