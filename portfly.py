@@ -107,17 +107,18 @@ class trafix():
     # send_sk_gen_udp
     # recv_sk_gen_udp
     ################################
-    def pkt_sendto(self, pt, cont, idx, recv_max_idx=0):
+    def pkt_sendto(self, pt, cont):
         extralen = 16 if self.md5 else 0
 
         # the first 2 bytes is total length,
         # the last 4 bytes is packet index, if no md5 hash.
         if pt == 'A':    # Ack
-            pkt = int.to_bytes(43+extralen,2,BOL) \
-                        + b'A' \
-                        + bytes(random.randint(0,255) for _ in range(32)) \
-                        + int.to_bytes(recv_max_idx,4,BOL) \
-                        + int.to_bytes(idx,4,BOL)
+            pkt = int.to_bytes(len(cont)+3+extralen,2,BOL) + b'A' + cont
+            #pkt = int.to_bytes(43+extralen,2,BOL) \
+            #            + b'A' \
+            #            + bytes(random.randint(0,255) for _ in range(32)) \
+            #            + int.to_bytes(recv_max_idx,4,BOL) \
+            #            + int.to_bytes(idx,4,BOL)
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
         elif pt == 'D':  # Data
@@ -179,12 +180,12 @@ class trafix():
                 # resend data in noack
                 if time.time()-resend_time > 0.5:
                     for rd in self.noack.values():
-                        if self.pkt_sendto('R',rd,-1) == 0:
+                        if self.pkt_sendto('R',rd) == 0:
                             break
                     resend_time = time.time()
                 # normal send
                 while len(data):
-                    if self.pkt_sendto('D',data[:UDP_SEND_LEN],-1) == 0:
+                    if self.pkt_sendto('D',data[:UDP_SEND_LEN]) == 0:
                         break
                     data = data[UDP_SEND_LEN:]
             except BlockingIOError:
@@ -193,69 +194,93 @@ class trafix():
     def recv_sk_gen_udp(self, sk: sk_t):
         recv_max_idx = START_IDX
         data = b''
+        recv_idxlst = []
+        data_flag = False
         while True:
-            try:
-                # recv
-                rd, taddr = sk.recvfrom(UDP_RECV_LEN)
-                if self.x:
-                    rd = dx(rd)
-                # init target addr
-                if not self.taddr:
-                    self.taddr = taddr
-                    log.warning('init udp target addr %s', str(taddr))
-                # check taddr
-                elif taddr != self.taddr:
-                    log.error('udp target addr changed, packet dropped!')
-                    continue
-                # deal packet
-                plen = len(rd)
-                if plen>2 and int.from_bytes(rd[:2],BOL)==plen:
-                    # check md5
-                    if self.md5:
-                        rd, md5 = rd[:-16], rd[-16:]
-                        if hashlib.md5(rd).digest() != md5:
-                            log.error('recv illegal packet, md5 wrong!')
-                            continue
-                    # check type
-                    t = rd[2:3]
-                    if t not in (b'A',b'D'):
-                        log.error('recv illegal packet, type wrong!')
+          try:
+            # recv
+            rd, taddr = sk.recvfrom(UDP_RECV_LEN)
+            if self.x:
+                rd = dx(rd)
+            # init target addr
+            if not self.taddr:
+                self.taddr = taddr
+                log.warning('init udp target addr %s', str(taddr))
+            # check taddr
+            elif taddr != self.taddr:
+                log.error('udp target addr changed, packet dropped!')
+                continue
+            # deal packet
+            plen = len(rd)
+            if plen>2 and int.from_bytes(rd[:2],BOL)==plen:
+                # check md5
+                if self.md5:
+                    rd, md5 = rd[:-16], rd[-16:]
+                    if hashlib.md5(rd).digest() != md5:
+                        log.error('recv illegal packet, md5 wrong!')
                         continue
-                    # get idx
-                    recv_idx = int.from_bytes(rd[-4:], BOL)
-                    # if ack
-                    if t == b'A':
-                        rmidx = int.from_bytes(rd[-8:-4], BOL)
-                        log.debug('[%d] A %d %d <--',self.port,recv_idx,rmidx)
-                        self.noack.pop(recv_idx, None)
-                        for k in list(self.noack.keys()):
-                            if k <= rmidx:
-                                self.noack.pop(k, None)
-                    # if data
-                    else:  # t == b'D':
-                        log.debug('[%d] D %d %d <--', self.port,recv_idx,plen)
-                        if (recv_idx > recv_max_idx
-                                and recv_idx not in self.fdata):
-                            # save data
-                            self.fdata[recv_idx] = rd[3:-4]
-                            # concatenate
-                            while (nid:=recv_max_idx+1) in self.fdata:
-                                data += self.fdata[nid]
-                                self.fdata.pop(nid)
-                                recv_max_idx = nid
-                            # yield msg
-                            while(datalen:=len(data)) > 4:
-                                msglen = int.from_bytes(data[:4], BOL)
-                                if datalen >= msglen:
-                                    sid = int.from_bytes(data[4:8], BOB)
-                                    msg = data[8:msglen]
-                                    yield sid, msg[:1], msg[1:]
-                                    data = data[msglen:]
-                                else:
-                                    break
-                        self.pkt_sendto('A', None, recv_idx, recv_max_idx)
-            except BlockingIOError:
-                yield None, b'\x00', b''
+                # check type
+                t = rd[2:3]
+                if t not in (b'A',b'D'):
+                    log.error('recv illegal packet, type wrong!')
+                    continue
+                # get idx
+                recv_idx = int.from_bytes(rd[-4:], BOL)
+                # if ack
+                if t == b'A':
+                    num = int.from_bytes(rd[3:7], BOL)
+                    rmidx = int.from_bytes(rd[7:11], BOL)
+                    for i in list(self.noack.keys()):
+                        if i <= rmidx:
+                            self.noack.pop(i, None)
+                    for i in range(num):
+                        idx = int.to_bytes(rd[11+i*4:15+i*4], BOL)
+                        self.noack.pop(idx, None)
+                    log.debug('[%d] A n:%d max:%d left:%d <--',
+                                    self.port, num, rmidx, len(self.noack))
+                # if data
+                else:  # t == b'D':
+                    data_flag = True
+                    log.debug('[%d] D %d %d <--', self.port,recv_idx,plen)
+                    if (recv_idx > recv_max_idx
+                            and recv_idx not in self.fdata):
+                        recv_idxlst.append(recv_idx)
+                        # save data
+                        self.fdata[recv_idx] = rd[3:-4]
+                        # concatenate
+                        while (nid:=recv_max_idx+1) in self.fdata:
+                            data += self.fdata[nid]
+                            self.fdata.pop(nid)
+                            recv_max_idx = nid
+                        # yield msg
+                        while(datalen:=len(data)) > 4:
+                            msglen = int.from_bytes(data[:4], BOL)
+                            if datalen >= msglen:
+                                sid = int.from_bytes(data[4:8], BOB)
+                                msg = data[8:msglen]
+                                yield sid, msg[:1], msg[1:]
+                                data = data[msglen:]
+                            else:
+                                break
+          except BlockingIOError:
+            # send A packet
+            if data_flag:
+                mb = int.to_bytes(recv_max_idx,4,BOL)
+                n = 0
+                cont = b''
+                for i in recv_idxlst:
+                    cont += int.to_bytes(i,4,BOL)
+                    n += 1
+                    if n == 256:
+                        self.pkt_sendto('A', int.to_bytes(256,4,BOL)+mb+cont)
+                        n = 0
+                        cont = b''
+                self.pkt_sendto('A', int.to_bytes(n,4,BOL)+mb+cont)
+            # return
+            yield None, b'\x00', b''
+            # resume
+            recv_idxlst = []
+            data_flag = False
 
     ################################
     # TCP Tunnel layer includes:
