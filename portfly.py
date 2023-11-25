@@ -55,7 +55,7 @@ cxb = partial(cx, b64=True)
 dxb = partial(dx, b64=True)
 
 
-SK_IO_CHUNK_LEN = 4096*2
+SK_IO_CHUNK_LEN = 4096*4
 UDP_RECV_LEN    = 1472  # 1500-20-8
 UDP_SEND_LEN    = 1444
 MAX_STREAM_ID   = 0xFFFFFFFF
@@ -155,7 +155,7 @@ class trafix():
                     idx = int.from_bytes(pkt[-4-16:-16], BOL)
                 else:
                     idx = int.from_bytes(pkt[-4:], BOL)
-                log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
+                log.debug('[%d] --> %s %d %d', self.port, pt, idx, plen)
             return 1
         else:
             log.error('[%d] sendto return less! %s plen=%d slen=%d',
@@ -236,12 +236,12 @@ class trafix():
                     for i in range(num):
                         idx = int.from_bytes(rd[11+i*4:15+i*4], BOL)
                         self.noack.pop(idx, None)
-                    log.debug('[%d] A n:%d max:%d left:%d <--',
+                    log.debug('[%d] A <-- n:%d max:%d left:%d',
                                     self.port, num, rmidx, len(self.noack))
                 # if data
                 else:  # t == b'D':
                     data_flag = True
-                    log.debug('[%d] D %d %d <--', self.port,recv_idx,plen)
+                    log.debug('[%d] D <-- %d %d', self.port,recv_idx,plen)
                     if (recv_idx > recv_max_idx
                             and recv_idx not in self.fdata):
                         recv_idxlst.append(recv_idx)
