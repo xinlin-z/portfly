@@ -353,6 +353,7 @@ class trafix():
         self.md5 = config['tunnel_md5']
         if self.role == 's':
             self.pserv = config['listen_sk']
+            self.pserv.setblocking(False)
             self.sid = 1          # sid, stream id
             self.sel.register(self.pserv,
                               selectors.EVENT_READ,
@@ -365,8 +366,7 @@ class trafix():
         self.reg: int = 0
         self.unreg: int = 0
 
-        # set heartbeat params and send one,
-        # to make udp server know its client
+        # send one HB to make udp server know its client
         self.heartbeat_time = time.time()
         self.heartbeat_max = 0
         self.gen_send.send((MSG_HB,0))
@@ -456,24 +456,29 @@ class trafix():
             log.debug('[%d] unreg %d', self.port, self.unreg)
 
     def _new_connect_role_s(self, fd):
-        s, addr = self.pserv.accept()
-        self.gen_send.send((MSG_NC, self.sid))
-        log.info('[%d] accept %s, sid %d', self.port, str(addr), self.sid)
-        s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
-        s.setblocking(False)  # set nonblocking
-        self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
-        self.reg += 1
-        log.debug('[%d] reg %d', self.port, self.reg)
-        self.sdict[self.sid] = trafix.sk_buf(s)
-        self.kdict[s] = self.sid
-        self.update_sid()
+        assert fd.fileobj == self.pserv
+        try:
+            while True:
+                s, addr = self.pserv.accept()
+                self.gen_send.send((MSG_NC, self.sid))
+                log.info('[%d] accept %s, sid %d', self.port, str(addr), self.sid)
+                # s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
+                s.setblocking(False)  # set nonblocking
+                self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
+                self.reg += 1
+                log.debug('[%d] reg %d', self.port, self.reg)
+                self.sdict[self.sid] = trafix.sk_buf(s)
+                self.kdict[s] = self.sid
+                self.update_sid()
+        except BlockingIOError:
+            pass
 
     def _recv_tunnel(self, fd):
         p = self.port
         while True:
             sid, t, bmsg = next(self.gen_recv)
-            log.debug('[%d] recv from tunnel, type: %s', p, t)
             if sid is not None:
+                log.debug('[%d] recv from tunnel, type: %s', p, t)
                 # new connection in client role
                 if t == MSG_NC:
                     try:
@@ -503,7 +508,7 @@ class trafix():
                     self.heartbeat_max = 0
                 # data
                 else:
-                    # assert t == MSG_ND
+                    assert t == MSG_ND
                     try:
                         if sid in self.sdict.keys():
                             self.sdict[sid].buf += bmsg
