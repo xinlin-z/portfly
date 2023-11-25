@@ -234,7 +234,7 @@ class trafix():
                         if i <= rmidx:
                             self.noack.pop(i, None)
                     for i in range(num):
-                        idx = int.to_bytes(rd[11+i*4:15+i*4], BOL)
+                        idx = int.from_bytes(rd[11+i*4:15+i*4], BOL)
                         self.noack.pop(idx, None)
                     log.debug('[%d] A n:%d max:%d left:%d <--',
                                     self.port, num, rmidx, len(self.noack))
@@ -269,12 +269,13 @@ class trafix():
                 n = 0
                 cont = b''
                 for i in recv_idxlst:
-                    cont += int.to_bytes(i,4,BOL)
-                    n += 1
-                    if n == 256:
-                        self.pkt_sendto('A', int.to_bytes(256,4,BOL)+mb+cont)
-                        n = 0
-                        cont = b''
+                    if i > recv_max_idx:
+                        cont += int.to_bytes(i,4,BOL)
+                        n += 1
+                        if n == 256:
+                            self.pkt_sendto('A', int.to_bytes(256,4,BOL)+mb+cont)
+                            n = 0
+                            cont = b''
                 self.pkt_sendto('A', int.to_bytes(n,4,BOL)+mb+cont)
             # return
             yield None, b'\x00', b''
