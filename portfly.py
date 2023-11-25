@@ -114,11 +114,6 @@ class trafix():
         # the last 4 bytes is packet index, if no md5 hash.
         if pt == 'A':    # Ack
             pkt = int.to_bytes(len(cont)+3+extralen,2,BOL) + b'A' + cont
-            #pkt = int.to_bytes(43+extralen,2,BOL) \
-            #            + b'A' \
-            #            + bytes(random.randint(0,255) for _ in range(32)) \
-            #            + int.to_bytes(recv_max_idx,4,BOL) \
-            #            + int.to_bytes(idx,4,BOL)
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
         elif pt == 'D':  # Data
