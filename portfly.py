@@ -107,29 +107,19 @@ class trafix():
     # send_sk_gen_udp
     # recv_sk_gen_udp
     ################################
-    def pkt_sendto(self, pt, cont):
+    def pkt_sendto(self, pt, pkt):
         extralen = 16 if self.md5 else 0
 
         # the first 2 bytes is total length,
         # the last 4 bytes is packet index, if no md5 hash.
-        if pt == 'A':    # Ack
-            pkt = int.to_bytes(len(cont)+3+extralen,2,BOL) + b'A' + cont
+        if pt != b'R':
+            pkt = int.to_bytes(len(pkt)+3+extralen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
-        elif pt == 'D':  # Data
-            self.uidx += 1
-            pkt = int.to_bytes(len(cont)+7+extralen,2,BOL) \
-                        + b'D' \
-                        + cont \
-                        + int.to_bytes(self.uidx,4,BOL)
-            if self.md5:
-                pkt += hashlib.md5(pkt).digest()
-        elif pt == 'R':  # Raw, when resend
-            pkt = cont
 
-        # udp session, no taddr yet. The initial heartbeat.
+        # udp session, no target addr yet, such as initial heartbeat.
         if not self.taddr:
-            if pt == 'D':
+            if pt == b'D':
                 self.noack[self.uidx] = pkt
             return 1
 
@@ -142,10 +132,10 @@ class trafix():
         if slen == plen+(1 if self.x else 0):
             # if pt == 'A':
             #    log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
-            if pt == 'D':
+            if pt == b'D':
                 # log.debug('[%d] %s %d %d -->', self.port, pt, self.uidx, plen)
                 self.noack[self.uidx] = pkt
-            if pt == 'R':
+            if pt == b'R':
                 if self.md5:
                     idx = int.from_bytes(pkt[-4-16:-16], BOL)
                 else:
@@ -175,12 +165,14 @@ class trafix():
                 # resend data in noack
                 if time.time()-resend_time > 0.5:
                     for rd in self.noack.values():
-                        if self.pkt_sendto('R',rd) == 0:
+                        if self.pkt_sendto(b'R',rd) == 0:
                             break
                     resend_time = time.time()
                 # normal send
                 while len(data):
-                    if self.pkt_sendto('D',data[:UDP_SEND_LEN]) == 0:
+                    self.uidx += 1
+                    pkt = data[:UDP_SEND_LEN] + int.to_bytes(self.uidx,4,BOL)
+                    if self.pkt_sendto(b'D',pkt) == 0:
                         break
                     data = data[UDP_SEND_LEN:]
             except BlockingIOError:
@@ -231,8 +223,9 @@ class trafix():
                     for i in range(num):
                         idx = int.from_bytes(rd[11+i*4:15+i*4], BOL)
                         self.noack.pop(idx, None)
-                    log.debug('[%d] A <-- n:%d max:%d left:%d',
-                                    self.port, num, rmidx, len(self.noack))
+                    log.debug('[%d] A <-- n:%d max:%d noack:%d fdata:%d',
+                                    self.port, num, rmidx,
+                                    len(self.noack), len(self.fdata))
                 # if data
                 else:  # t == b'D':
                     data_flag = True
@@ -268,10 +261,10 @@ class trafix():
                         cont += int.to_bytes(i,4,BOL)
                         n += 1
                         if n == 256:
-                            self.pkt_sendto('A', int.to_bytes(256,4,BOL)+mb+cont)
+                            self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
                             n = 0
                             cont = b''
-                self.pkt_sendto('A', int.to_bytes(n,4,BOL)+mb+cont)
+                self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
             # return
             yield None, b'\x00', b''
             # resume
@@ -717,7 +710,7 @@ def client_main(config: dict, key: bytes) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-V', '--version',
-                            action='version', version='portfly V0.33')
+                            action='version', version='portfly V0.34')
     parser.add_argument('--log', choices=('INFO','DEBUG'), default='WARNING')
     parser.add_argument('-x', action='store_true',
                         help='apply simple encryption to traffic')

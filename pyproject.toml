@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = 'portfly'
-version = '0.33'
+version = '0.34'
 requires-python = '>=3.8'
 description = 'Remote/Local port forwarding in Python by TCP/UDP'
 readme = 'README.md'
