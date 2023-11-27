@@ -95,7 +95,6 @@ def silent_close_socket(sk: sk_t) -> None:
 
 class trafix():
     """ traffic exchanging class """
-
     @dataclass
     class sk_buf:
         sk: sk_t
@@ -116,11 +115,10 @@ class trafix():
             pkt = int.to_bytes(len(pkt)+3+extralen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
+            plen = len(pkt)
         else:
-            if self.md5:
-                idx = int.from_bytes(pkt[-4-16:-16], BOL)
-            else:
-                idx = int.from_bytes(pkt[-4:], BOL)
+            plen = len(pkt)
+            idx = int.from_bytes(pkt[plen-4-extralen:plen-extralen], BOL)
             log.debug('try [%d] --> %s %d', self.port, pt, idx)
 
         # udp session, no target addr yet, such as initial heartbeat.
@@ -129,12 +127,8 @@ class trafix():
                 self.noack[self.uidx] = pkt
             return 1
 
-        plen = len(pkt)
-
-        # Send!
-        # even for resend, every time the xor byte is different.
+        # [re]send! Every time the xor byte is different.
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
-
         if slen == plen+(1 if self.x else 0):
             if pt == b'D':
                 self.noack[self.uidx] = pkt
@@ -451,14 +445,6 @@ class trafix():
             self.heartbeat_time = now + random.randint(0,39)
             self.heartbeat_max += 1
 
-    def update_sid(self) -> None:
-        # sid 0 is used for heartbeat,
-        # sid should be incremented sequentially to avoid conflict.
-        while True:
-            self.sid = self.sid+1 if self.sid!=MAX_STREAM_ID else 1
-            if self.sid not in self.sdict.keys():
-                break
-
     def clean(self, sid: int) -> None:
         """ delete sid from sdict,
             delete sk from kdict,
@@ -488,7 +474,11 @@ class trafix():
                 log.debug('[%d] reg %d', self.port, self.reg)
                 self.sdict[self.sid] = trafix.sk_buf(s)
                 self.kdict[s] = self.sid
-                self.update_sid()
+                # update sid, 0 is used for heartbeat
+                while True:
+                    self.sid = self.sid+1 if self.sid!=MAX_STREAM_ID else 1
+                    if self.sid not in self.sdict.keys():
+                        break
         except BlockingIOError:
             pass
 
