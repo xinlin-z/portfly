@@ -250,6 +250,8 @@ class trafix():
                                 data = data[msglen:]
                             else:
                                 break
+            else:
+                log.error('recv illegal packet, length wrong!')
           except BlockingIOError:
             # send A packet
             if data_flag:
@@ -556,20 +558,10 @@ class trafix():
 
     def loop(self) -> None:
         while True:
+            self.try_send_heartbeat()
             bytes_left = self.flush()
-            if bytes_left != 0:
-                # log.debug('[%d] flushed, bytes left %d', self.port, bytes_left)
-                events = self.sel.select(0)  # just a polling
-            else:
-                events = self.sel.select(HB_BASE_INTV)
-            # if no read event
-            if len(events) == 0:
-                # it might be a chance to send heartbeat
-                self.try_send_heartbeat()
-                # it's better to wait a while before next flush
-                if bytes_left != 0:
-                    time.sleep(0.1)
-                continue
+            sel_wait = 0.1 if bytes_left>0 else HB_BASE_INTV
+            events = self.sel.select(sel_wait)
             for fd, _ in events:
                 fd.data(fd)
 
