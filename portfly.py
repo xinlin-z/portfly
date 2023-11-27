@@ -253,18 +253,18 @@ class trafix():
           except BlockingIOError:
             # send A packet
             if data_flag:
-                mb = int.to_bytes(recv_max_idx,4,BOL)
-                n = 0
-                cont = b''
-                for i in recv_idxlst:
-                    if i > recv_max_idx:
-                        cont += int.to_bytes(i,4,BOL)
-                        n += 1
-                        if n == 256:
-                            self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
-                            n = 0
-                            cont = b''
-                self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
+              mb = int.to_bytes(recv_max_idx,4,BOL)
+              n = 0
+              cont = b''
+              for i in recv_idxlst:
+                  if i > recv_max_idx:
+                      cont += int.to_bytes(i,4,BOL)
+                      n += 1
+                      if n == 256:
+                        self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
+                        n = 0
+                        cont = b''
+              self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
             # return
             yield None, b'\x00', b''
             # resume
@@ -347,7 +347,8 @@ class trafix():
                 self.sk.bind(('',config['tunnel_udp_port']))
                 self.taddr = None
             else:
-                self.taddr = (config['tunnel_udp_ip'],config['tunnel_udp_port'])
+                self.taddr = (config['tunnel_udp_ip'],
+                              config['tunnel_udp_port'])
             self.gen_recv = self.recv_sk_gen_udp(self.sk)
             self.gen_send = self.send_sk_gen_udp(self.sk)
         elif self.session_type == 'tcp':
@@ -475,7 +476,7 @@ class trafix():
             while True:
                 s, addr = self.pserv.accept()
                 self.gen_send.send((MSG_NC, self.sid))
-                log.info('[%d] accept %s, sid %d', self.port, str(addr), self.sid)
+                log.info('[%d] accept %s, sid %d',self.port,str(addr),self.sid)
                 # s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
                 s.setblocking(False)  # set nonblocking
                 self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
@@ -496,13 +497,14 @@ class trafix():
                 # new connection in client role
                 if t == MSG_NC:
                     try:
-                        s = socket.create_connection(self.target,
-                                                     timeout=2)
+                        s = socket.create_connection(self.target, timeout=2)
                         log.info('[%d] connect target %s ok, sid %d',
                                  p, str(self.target), sid)
                         s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
                         s.setblocking(False)
-                        self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
+                        self.sel.register(s,
+                                          selectors.EVENT_READ,
+                                          self._recv_conn)
                         self.reg += 1
                         log.debug('[%d] reg %d', p, self.reg)
                         self.sdict[sid] = trafix.sk_buf(s)
@@ -528,8 +530,7 @@ class trafix():
                             self.sdict[sid].buf += bmsg
                             self.send_sk_gen_conn(sid)
                     except OSError:
-                        log.info('[%d] sid %d is closed while send',
-                                 p, sid)
+                        log.info('[%d] sid %d is closed while send', p, sid)
                         self.gen_send.send((MSG_CD,sid))
                         self.clean(sid)
             else:
@@ -561,12 +562,11 @@ class trafix():
                 events = self.sel.select(0)  # just a polling
             else:
                 events = self.sel.select(HB_BASE_INTV)
-            # if no socket ready to be read,
+            # if no read event
             if len(events) == 0:
-                # log.debug('[%d] no events', self.port)
-                # it might be a chance to send heartbeat.
+                # it might be a chance to send heartbeat
                 self.try_send_heartbeat()
-                # it's better to wait a while before next flush.
+                # it's better to wait a while before next flush
                 if bytes_left != 0:
                     time.sleep(0.1)
                 continue
