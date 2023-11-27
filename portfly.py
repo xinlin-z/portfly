@@ -116,6 +116,12 @@ class trafix():
             pkt = int.to_bytes(len(pkt)+3+extralen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
+        else:
+            if self.md5:
+                idx = int.from_bytes(pkt[-4-16:-16], BOL)
+            else:
+                idx = int.from_bytes(pkt[-4:], BOL)
+            log.debug('try [%d] --> %s %d', self.port, pt, idx)
 
         # udp session, no target addr yet, such as initial heartbeat.
         if not self.taddr:
@@ -130,17 +136,8 @@ class trafix():
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
 
         if slen == plen+(1 if self.x else 0):
-            # if pt == 'A':
-            #    log.debug('[%d] %s %d %d -->', self.port, pt, idx, plen)
             if pt == b'D':
-                # log.debug('[%d] %s %d %d -->', self.port, pt, self.uidx, plen)
                 self.noack[self.uidx] = pkt
-            if pt == b'R':
-                if self.md5:
-                    idx = int.from_bytes(pkt[-4-16:-16], BOL)
-                else:
-                    idx = int.from_bytes(pkt[-4:], BOL)
-                log.debug('[%d] --> %s %d %d', self.port, pt, idx, plen)
             return 1
         else:
             log.error('[%d] sendto return less! %s plen=%d slen=%d',
@@ -390,7 +387,12 @@ class trafix():
 
         # event loop
         try:
-            self.loop()
+            while True:
+                self.try_send_heartbeat()
+                bytes_left = self.flush()
+                sel_wait = 0.1 if bytes_left>0 else HB_BASE_INTV
+                for fd, _ in self.sel.select(sel_wait):
+                    fd.data(fd)
         except Exception as e:
             log.error('[%d] exception: %s', self.port, str(e))
             log.exception(e)
@@ -555,15 +557,6 @@ class trafix():
             except StopIteration:
                 break
             self.gen_send.send((MSG_ND+data,sid))  # send data
-
-    def loop(self) -> None:
-        while True:
-            self.try_send_heartbeat()
-            bytes_left = self.flush()
-            sel_wait = 0.1 if bytes_left>0 else HB_BASE_INTV
-            events = self.sel.select(sel_wait)
-            for fd, _ in events:
-                fd.data(fd)
 
 
 def zombie_reaper():
