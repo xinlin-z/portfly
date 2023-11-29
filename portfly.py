@@ -246,18 +246,21 @@ class trafix():
           except BlockingIOError:
             # send A packet
             if data_flag:
-              mb = int.to_bytes(recv_max_idx,4,BOL)
-              n = 0
-              cont = b''
-              for i in recv_idxlst:
+              try:
+                mb = int.to_bytes(recv_max_idx,4,BOL)
+                n = 0
+                cont = b''
+                for i in recv_idxlst:
                   if i > recv_max_idx:
-                      cont += int.to_bytes(i,4,BOL)
-                      n += 1
-                      if n == 256:
-                        self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
-                        n = 0
-                        cont = b''
-              self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
+                    cont += int.to_bytes(i,4,BOL)
+                    n += 1
+                    if n == 256:
+                      self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
+                      n = 0
+                      cont = b''
+                self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
+              except BlockingIOError:
+                pass
             # return
             yield None, b'\x00', b''
             # resume
@@ -275,11 +278,10 @@ class trafix():
         data = b''
         while True:
             bmsg, sid = yield len(data)
-
-            if bmsg is not None:
+            if bmsg:
                 if self.x:
                     bmsg = cx(bmsg)
-                extralen = 8+16 if self.md5 else 8
+                extralen = 8 + (16 if self.md5 else 0)
                 data += (len(bmsg)+extralen).to_bytes(4,BOL) \
                                        + sid.to_bytes(4,BOB) \
                                        + bmsg
@@ -304,19 +306,19 @@ class trafix():
                 if len(d) == 0:
                     raise ConnectionError('recv_sk_gen recv 0')
                 data += d
-                while (dlen:=len(data)) > 4:
+                while (tlen:=len(data)) > 4:
                     mlen = int.from_bytes(data[:4], BOL)
-                    if dlen >= mlen:
-                        dpos = mlen
+                    if tlen >= mlen:
+                        epos = mlen
                         if self.md5:
-                            dpos = mlen - 16
-                            md5 = data[dpos:mlen]
-                            if md5 != hashlib.md5(data[:dpos]).digest():
+                            epos = mlen - 16
+                            md5 = data[epos:mlen]
+                            if md5 != hashlib.md5(data[:epos]).digest():
                                 data = data[mlen:]
                                 log.error('[%d] tcp md5 error', self.port)
                                 continue
                         sid = int.from_bytes(data[4:8], BOB)
-                        msg = dx(data[8:dpos]) if self.x else data[8:dpos]
+                        msg = dx(data[8:epos]) if self.x else data[8:epos]
                         yield sid, msg[:1], msg[1:]
                         data = data[mlen:]
                     else:
@@ -467,7 +469,7 @@ class trafix():
                 s, addr = self.pserv.accept()
                 self.gen_send.send((MSG_NC, self.sid))
                 log.info('[%d] accept %s, sid %d',self.port,str(addr),self.sid)
-                # s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
+                s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
                 s.setblocking(False)  # set nonblocking
                 self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
                 self.reg += 1
@@ -685,7 +687,7 @@ def client_main(config: dict, key: bytes) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-V', '--version',
-                            action='version', version='portfly V0.34')
+                            action='version', version='portfly V0.35')
     parser.add_argument('--log', choices=('INFO','DEBUG'), default='WARNING')
     parser.add_argument('-x', action='store_true',
                         help='apply simple encryption to traffic')
