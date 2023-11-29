@@ -111,11 +111,13 @@ class trafix():
 
         # the first 2 bytes is total length,
         # the last 4 bytes is packet index, if no md5 hash.
-        if pt != b'R':
+        if pt in (b'A',b'D'):
             pkt = int.to_bytes(len(pkt)+3+extralen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
             plen = len(pkt)
+            if pt == b'D':
+                self.noack[self.uidx] = pkt
         else:
             plen = len(pkt)
             idx = int.from_bytes(pkt[plen-4-extralen:plen-extralen], BOL)
@@ -123,15 +125,11 @@ class trafix():
 
         # udp session, no target addr yet, such as initial heartbeat.
         if not self.taddr:
-            if pt == b'D':
-                self.noack[self.uidx] = pkt
             return 1
 
         # [re]send! Every time the xor byte is different.
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
         if slen == plen+(1 if self.x else 0):
-            if pt == b'D':
-                self.noack[self.uidx] = pkt
             return 1
         else:
             log.error('[%d] sendto return less! %s plen=%d slen=%d',
@@ -163,9 +161,9 @@ class trafix():
                 while len(data):
                     self.uidx += 1
                     pkt = data[:UDP_SEND_LEN] + int.to_bytes(self.uidx,4,BOL)
+                    data = data[UDP_SEND_LEN:]
                     if self.pkt_sendto(b'D',pkt) == 0:
                         break
-                    data = data[UDP_SEND_LEN:]
             except BlockingIOError:
                 continue
 
@@ -221,26 +219,26 @@ class trafix():
                 else:  # t == b'D':
                     data_flag = True
                     log.debug('[%d] D <-- %d %d', self.port,recv_idx,plen)
-                    if (recv_idx > recv_max_idx
-                            and recv_idx not in self.fdata):
+                    if recv_idx > recv_max_idx:
                         recv_idxlst.append(recv_idx)
-                        # save data
-                        self.fdata[recv_idx] = rd[3:-4]
-                        # concatenate
-                        while (nid:=recv_max_idx+1) in self.fdata:
-                            data += self.fdata[nid]
-                            self.fdata.pop(nid)
-                            recv_max_idx = nid
-                        # yield msg
-                        while(datalen:=len(data)) > 4:
-                            msglen = int.from_bytes(data[:4], BOL)
-                            if datalen >= msglen:
-                                sid = int.from_bytes(data[4:8], BOB)
-                                msg = data[8:msglen]
-                                yield sid, msg[:1], msg[1:]
-                                data = data[msglen:]
-                            else:
-                                break
+                        if recv_idx not in self.fdata:
+                            # save data
+                            self.fdata[recv_idx] = rd[3:-4]
+                            # concatenate
+                            while (nid:=recv_max_idx+1) in self.fdata:
+                                data += self.fdata[nid]
+                                self.fdata.pop(nid)
+                                recv_max_idx = nid
+                            # yield msg
+                            while(datalen:=len(data)) > 4:
+                                msglen = int.from_bytes(data[:4], BOL)
+                                if datalen >= msglen:
+                                    sid = int.from_bytes(data[4:8], BOB)
+                                    msg = data[8:msglen]
+                                    yield sid, msg[:1], msg[1:]
+                                    data = data[msglen:]
+                                else:
+                                    break
             else:
                 log.error('recv illegal packet, length wrong!')
           except BlockingIOError:
