@@ -279,12 +279,10 @@ class trafix():
             if bmsg:
                 if self.x:
                     bmsg = cx(bmsg)
-                extralen = 8 + (16 if self.md5 else 0)
-                data += (len(bmsg)+extralen).to_bytes(4,BOL) \
-                                       + sid.to_bytes(4,BOB) \
-                                       + bmsg
+                mlen = len(bmsg) + 8 + (16 if self.md5 else 0)
+                data += mlen.to_bytes(4,BOL) + sid.to_bytes(4,BOB) + bmsg
                 if self.md5:
-                    data += hashlib.md5(data).digest()
+                    data += hashlib.md5(data[-mlen+16:]).digest()
             try:
                 while len(data):
                     if (i:=sk.send(data[:SK_IO_CHUNK_LEN])) == -1:
@@ -487,7 +485,7 @@ class trafix():
         while True:
             sid, t, bmsg = next(self.gen_recv)
             if sid is not None:
-                log.debug('[%d] recv from tunnel, type: %s', p, t)
+                log.debug('[%d] recv tunnel, type: %s, sid: %s', p,t,str(sid))
                 # new connection in client role
                 if t == MSG_NC:
                     try:
