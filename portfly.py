@@ -5,7 +5,7 @@ Local/Remote Port Forwarding in Python.
 Features:
 1, Non-Blocking Socket.
 2, Event IO.
-3, TCP/UDP Tunnel.
+3, TCP/UDP Tunnel. (private prototol)
 4, Multi-Connection.
 
 Author:   xinlin-z
@@ -107,12 +107,12 @@ class trafix():
     # recv_sk_gen_udp
     ################################
     def pkt_sendto(self, pt, pkt):
-        extralen = 16 if self.md5 else 0
+        elen = 16 if self.md5 else 0
 
         # the first 2 bytes is total length,
         # the last 4 bytes is packet index, if no md5 hash.
         if pt in (b'A',b'D'):
-            pkt = int.to_bytes(len(pkt)+3+extralen,2,BOL) + pt + pkt
+            pkt = int.to_bytes(len(pkt)+3+elen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
             plen = len(pkt)
@@ -120,14 +120,11 @@ class trafix():
                 self.noack[self.uidx] = pkt
         else:
             plen = len(pkt)
-            idx = int.from_bytes(pkt[plen-4-extralen:plen-extralen], BOL)
+            idx = int.from_bytes(pkt[plen-4-elen:plen-elen], BOL)
             log.debug('try [%d] --> %s %d', self.port, pt, idx)
 
-        # udp session, no target addr yet, such as initial heartbeat.
-        if not self.taddr:
-            return 1
-
         # [re]send! Every time the xor byte is different.
+        # if target address is None, TypeError is raised.
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
         if slen == plen+(1 if self.x else 0):
             return 1
@@ -145,18 +142,20 @@ class trafix():
             for rd in self.noack.values():
                 noack_size += len(rd)
             bmsg, sid = yield len(data)+noack_size
-
-            if bmsg is not None:
+            if bmsg:
                 data += (len(bmsg)+8).to_bytes(4,BOL) \
                                 + sid.to_bytes(4,BOB) \
                                 + bmsg
             try:
-                # resend data in noack
-                if time.time()-resend_time > 0.5:
-                    for rd in self.noack.values():
-                        if self.pkt_sendto(b'R',rd) == 0:
-                            break
+                # if noack is empty, update resend time
+                if not self.noack:
                     resend_time = time.time()
+                else:  # try resend
+                    if time.time()-resend_time > 0.5:
+                        for rd in self.noack.values():
+                            if self.pkt_sendto(b'R',rd) == 0:
+                                break
+                        resend_time = time.time()
                 # normal send
                 while len(data):
                     self.uidx += 1
@@ -164,14 +163,14 @@ class trafix():
                     data = data[UDP_SEND_LEN:]
                     if self.pkt_sendto(b'D',pkt) == 0:
                         break
-            except BlockingIOError:
+            except (BlockingIOError,TypeError):
                 continue
 
     def recv_sk_gen_udp(self, sk: sk_t):
-        recv_max_idx = START_IDX
         data = b''
+        recv_max_idx = START_IDX
         recv_idxlst = []
-        data_flag = False
+        recv_data_flag = False
         while True:
           try:
             # recv
@@ -217,7 +216,7 @@ class trafix():
                                     len(self.noack), len(self.fdata))
                 # if data
                 else:  # t == b'D':
-                    data_flag = True
+                    recv_data_flag = True
                     log.debug('[%d] D <-- %d %d', self.port,recv_idx,plen)
                     if recv_idx > recv_max_idx:
                         recv_idxlst.append(recv_idx)
@@ -243,7 +242,7 @@ class trafix():
                 log.error('recv illegal packet, length wrong!')
           except BlockingIOError:
             # send A packet
-            if data_flag:
+            if recv_data_flag:
               try:
                 mb = int.to_bytes(recv_max_idx,4,BOL)
                 n = 0
@@ -263,7 +262,7 @@ class trafix():
             yield None, b'\x00', b''
             # resume
             recv_idxlst = []
-            data_flag = False
+            recv_data_flag = False
 
     ################################
     # TCP Tunnel layer includes:
@@ -484,8 +483,8 @@ class trafix():
         p = self.port
         while True:
             sid, t, bmsg = next(self.gen_recv)
-            if sid is not None:
-                log.debug('[%d] recv tunnel, type: %s, sid: %s', p,t,str(sid))
+            if sid is not None:  # sid==0 is legal
+                log.debug('[%d] recv tunnel, type: %s, sid: %d', p,t,sid)
                 # new connection in client role
                 if t == MSG_NC:
                     try:
@@ -497,10 +496,10 @@ class trafix():
                         self.sel.register(s,
                                           selectors.EVENT_READ,
                                           self._recv_conn)
-                        self.reg += 1
-                        log.debug('[%d] reg %d', p, self.reg)
                         self.sdict[sid] = trafix.sk_buf(s)
                         self.kdict[s] = sid
+                        self.reg += 1
+                        log.debug('[%d] reg %d', p, self.reg)
                     except OSError as e:
                         log.error('[%d] connect %s failed: %s',
                                   p, str(self.target), str(e))
@@ -508,12 +507,12 @@ class trafix():
                 # connection down
                 elif t == MSG_CD:
                     if sid in self.sdict.keys():
-                        log.info('[%d] close sid %d by peer', p, sid)
                         self.clean(sid)
+                        log.info('[%d] close sid %d by peer', p, sid)
                 # heartbeat
                 elif t == MSG_HB:
-                    log.debug('[%d] recv heartbeat', p)
                     self.heartbeat_max = 0
+                    log.debug('[%d] recv heartbeat', p)
                 # data
                 else:
                     assert t == MSG_ND
@@ -522,9 +521,9 @@ class trafix():
                             self.sdict[sid].buf += bmsg
                             self.send_sk_gen_conn(sid)
                     except OSError:
-                        log.info('[%d] sid %d is closed while send', p, sid)
                         self.gen_send.send((MSG_CD,sid))
                         self.clean(sid)
+                        log.info('[%d] sid %d is closed while send', p, sid)
             else:
                 return
 
@@ -538,9 +537,9 @@ class trafix():
             try:
                 data = next(gen_data)
             except OSError as e:
-                log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
                 self.gen_send.send((MSG_CD,sid))
                 self.clean(sid)
+                log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
                 break
             except StopIteration:
                 break
