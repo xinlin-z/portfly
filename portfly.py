@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from base64 import b64encode, b64decode
 from functools import partial
 import hashlib
+import platform
 
 
 # set random seed
@@ -556,8 +557,9 @@ def zombie_reaper():
 
 
 def server_main(saddr: tuple[str,int], key: bytes) -> None:
-    threading.Thread(target=zombie_reaper, args=(), daemon=True).start()
-    log.warning('init zombie reaper thread')
+    if platform.system() != 'Windows':
+        threading.Thread(target=zombie_reaper,args=(),daemon=True).start()
+        log.warning('init zombie reaper thread')
     serv = socket.create_server(saddr)
     log.warning('init server listen at %s', str(saddr))
 
