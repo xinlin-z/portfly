@@ -65,6 +65,7 @@ BOL = 'little'  # byte order little
 BOB = 'big'     # byte order big
 START_IDX       = 0x0406A000
 CLIENT_RECONN_INTV = 8
+UDP_PKT_TYPES = set((b'A',b'D'))
 
 
 """
@@ -112,7 +113,7 @@ class trafix():
 
         # the first 2 bytes is total length,
         # the last 4 bytes is packet index, if no md5 hash.
-        if pt in (b'A',b'D'):
+        if pt in UDP_PKT_TYPES:
             pkt = int.to_bytes(len(pkt)+3+elen,2,BOL) + pt + pkt
             if self.md5:
                 pkt += hashlib.md5(pkt).digest()
@@ -197,21 +198,21 @@ class trafix():
                         continue
                 # check type
                 t = rd[2:3]
-                if t not in (b'A',b'D'):
+                if t not in UDP_PKT_TYPES:
                     log.error('recv illegal packet, type wrong!')
                     continue
-                # get idx
+                # get recv idx
                 recv_idx = int.from_bytes(rd[-4:], BOL)
                 # if ack
                 if t == b'A':
                     num = int.from_bytes(rd[3:7], BOL)
                     rmidx = int.from_bytes(rd[7:11], BOL)
-                    for i in list(self.noack.keys()):
-                        if i <= rmidx:
-                            self.noack.pop(i, None)
                     for i in range(num):
                         idx = int.from_bytes(rd[11+i*4:15+i*4], BOL)
                         self.noack.pop(idx, None)
+                    for i in list(self.noack.keys()):
+                        if i <= rmidx:
+                            self.noack.pop(i, None)
                     log.debug('[%d] A <-- n:%d max:%d noack:%d fdata:%d',
                                     self.port, num, rmidx,
                                     len(self.noack), len(self.fdata))
@@ -434,7 +435,7 @@ class trafix():
         return tunnel_left + sk_left
 
     def try_send_heartbeat(self) -> None:
-        if self.heartbeat_max > 8:
+        if self.heartbeat_max > 6:
             raise ConnectionError('heartbeat max is reached')
         now = time.time()
         if now - self.heartbeat_time > HB_BASE_INTV:
@@ -618,7 +619,7 @@ def server_main(saddr: tuple[str,int], key: bytes) -> None:
                     config['tunnel_udp_port'] = udpport
                     silent_close_socket(sk)
                 # launching process
-                mp.Process(target=trafix, args=(config,), daemon=True).start()
+                mp.Process(target=trafix,args=(config,),daemon=True).start()
                 log.warning('process launched...')
             else:
                 raise ValueError('magic bmsg error')
