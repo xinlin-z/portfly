@@ -165,7 +165,7 @@ class trafix():
                     data = data[UDP_SEND_LEN:]
                     if self.pkt_sendto(b'D',pkt) == 0:
                         break
-            except (BlockingIOError,TypeError):
+            except OSError:  # includes BlockingIOError
                 continue
 
     def recv_sk_gen_udp(self, sk: sk_t):
@@ -337,7 +337,7 @@ class trafix():
             self.sk.setblocking(False)
             if config['is_server']:
                 self.sk.bind(('',config['tunnel_udp_port']))
-                self.taddr = None
+                self.taddr = ('',0)  # invalid address
             else:
                 self.taddr = (config['tunnel_udp_ip'],
                               config['tunnel_udp_port'])
