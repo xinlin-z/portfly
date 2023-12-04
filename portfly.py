@@ -125,8 +125,11 @@ class trafix():
             idx = int.from_bytes(pkt[plen-4-elen:plen-elen], BOL)
             log.debug('try [%d] --> %s %d', self.port, pt, idx)
 
+        if not self.taddr:
+            log.debug('do not have udp target address yet!')
+            return 0
+
         # [re]send! Every time the xor byte is different.
-        # if target address is None, TypeError is raised.
         slen = self.sk.sendto(cx(pkt) if self.x else pkt, self.taddr)
         if slen == plen+(1 if self.x else 0):
             return 1
@@ -165,7 +168,7 @@ class trafix():
                     data = data[UDP_SEND_LEN:]
                     if self.pkt_sendto(b'D',pkt) == 0:
                         break
-            except OSError:  # includes BlockingIOError
+            except BlockingIOError:
                 continue
 
     def recv_sk_gen_udp(self, sk: sk_t):
@@ -177,8 +180,6 @@ class trafix():
           try:
             # recv
             rd, taddr = sk.recvfrom(UDP_RECV_LEN)
-            if self.x:
-                rd = dx(rd)
             # init target addr
             if not self.taddr:
                 self.taddr = taddr
@@ -187,6 +188,9 @@ class trafix():
             elif taddr != self.taddr:
                 log.error('udp target addr changed, packet dropped!')
                 continue
+            # dx
+            if self.x:
+                rd = dx(rd)
             # deal packet
             plen = len(rd)
             if plen>2 and int.from_bytes(rd[:2],BOL)==plen:
@@ -337,7 +341,7 @@ class trafix():
             self.sk.setblocking(False)
             if config['is_server']:
                 self.sk.bind(('',config['tunnel_udp_port']))
-                self.taddr = ('',0)  # invalid address
+                self.taddr = None
             else:
                 self.taddr = (config['tunnel_udp_ip'],
                               config['tunnel_udp_port'])
