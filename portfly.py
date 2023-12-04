@@ -156,7 +156,7 @@ class trafix():
                 if not self.noack:
                     resend_time = time.time()
                 else:  # try resend
-                    if time.time()-resend_time > 0.5:
+                    if time.time()-resend_time > 0.7:
                         for rd in self.noack.values():
                             if self.pkt_sendto(b'R',rd) == 0:
                                 break
@@ -224,26 +224,27 @@ class trafix():
                 else:  # t == b'D':
                     recv_data_flag = True
                     log.debug('[%d] D <-- %d %d', self.port,recv_idx,plen)
-                    if recv_idx > recv_max_idx:
-                        recv_idxlst.append(recv_idx)
-                        if recv_idx not in self.fdata:
-                            # save data
-                            self.fdata[recv_idx] = rd[3:-4]
-                            # concatenate
-                            while (nid:=recv_max_idx+1) in self.fdata:
-                                data += self.fdata[nid]
-                                self.fdata.pop(nid)
-                                recv_max_idx = nid
-                            # yield msg
-                            while(datalen:=len(data)) > 4:
-                                msglen = int.from_bytes(data[:4], BOL)
-                                if datalen >= msglen:
-                                    sid = int.from_bytes(data[4:8], BOB)
-                                    msg = data[8:msglen]
-                                    yield sid, msg[:1], msg[1:]
-                                    data = data[msglen:]
-                                else:
-                                    break
+                    recv_idxlst.append(recv_idx)
+                    if recv_idx>recv_max_idx and recv_idx not in self.fdata:
+                        # save data
+                        self.fdata[recv_idx] = rd[3:-4]
+                        # concatenate
+                        while (nid:=recv_max_idx+1) in self.fdata:
+                            data += self.fdata[nid]
+                            self.fdata.pop(nid)
+                            recv_max_idx = nid
+                        # yield msg
+                        while(datalen:=len(data)) > 4:
+                            msglen = int.from_bytes(data[:4], BOL)
+                            if datalen >= msglen:
+                                sid = int.from_bytes(data[4:8], BOB)
+                                msg = data[8:msglen]
+                                yield sid, msg[:1], msg[1:]
+                                data = data[msglen:]
+                            else:
+                                break
+                    if len(recv_idxlst) >= 256:
+                        raise BlockingIOError()
             else:
                 log.error('recv illegal packet, length wrong!')
           except BlockingIOError:
@@ -257,10 +258,7 @@ class trafix():
                   if i > recv_max_idx:
                     cont += int.to_bytes(i,4,BOL)
                     n += 1
-                    if n == 256:
-                      self.pkt_sendto(b'A', int.to_bytes(256,4,BOL)+mb+cont)
-                      n = 0
-                      cont = b''
+                assert n <= 256
                 self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
               except BlockingIOError:
                 pass
@@ -539,17 +537,16 @@ class trafix():
         except KeyError:
             return
         gen_data = self.recv_sk_gen_conn(fd.fileobj)
-        while True:
-            try:
-                data = next(gen_data)
-            except OSError as e:
-                self.gen_send.send((MSG_CD,sid))
-                self.clean(sid)
-                log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
-                break
-            except StopIteration:
-                break
-            self.gen_send.send((MSG_ND+data,sid))  # send data
+        try:
+            data = next(gen_data)
+        except OSError as e:
+            self.gen_send.send((MSG_CD,sid))
+            self.clean(sid)
+            log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
+            return
+        except StopIteration:
+            return
+        self.gen_send.send((MSG_ND+data,sid))  # send data
 
 
 def zombie_reaper():
