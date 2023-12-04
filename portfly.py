@@ -56,7 +56,7 @@ cxb = partial(cx, b64=True)
 dxb = partial(dx, b64=True)
 
 
-SK_IO_CHUNK_LEN = 4096*4
+SK_IO_CHUNK_LEN = 4096*8
 UDP_RECV_LEN    = 1472  # 1500-20-8
 UDP_SEND_LEN    = 1444
 MAX_STREAM_ID   = 0xFFFFFFFF
@@ -400,24 +400,13 @@ class trafix():
             silent_close_socket(self.pserv)
         log.warning('[%d] closed', self.port)
 
-    def recv_sk_gen_conn(self, sk: sk_t) -> Iterator[bytes]:
-        """ socket nonblocking recv generator, one shot """
-        while True:
-            try:
-                data = sk.recv(SK_IO_CHUNK_LEN)
-                if len(data) == 0:
-                    raise ConnectionError('recv_sk_gen_conn recv 0')
-                yield data
-            except BlockingIOError:
-                return
-
-    def send_sk_gen_conn(self, sid: int) -> int:
+    def send_sk_conn(self, sid: int) -> int:
         skb = self.sdict[sid]
         data = skb.buf
         try:
             while len(data):
                 if (i:=skb.sk.send(data[:SK_IO_CHUNK_LEN])) == -1:
-                    raise ConnectionError('send_sk_gen_conn send -1')
+                    raise ConnectionError('send_sk_conn send -1')
                 data = self.sdict[sid].buf = data[i:]
         except BlockingIOError:
             pass
@@ -429,7 +418,7 @@ class trafix():
         sk_left = 0
         for sid in list(self.sdict.keys()):
             try:
-                sk_left += self.send_sk_gen_conn(sid)
+                sk_left += self.send_sk_conn(sid)
             except OSError as e:
                 log.info('[%d] sid %d down while flush',self.port,sid,str(e))
                 tunnel_left = self.gen_send.send((MSG_CD,sid))
@@ -523,7 +512,7 @@ class trafix():
                     try:
                         if sid in self.sdict.keys():
                             self.sdict[sid].buf += bmsg
-                            self.send_sk_gen_conn(sid)
+                            self.send_sk_conn(sid)
                     except OSError:
                         self.gen_send.send((MSG_CD,sid))
                         self.clean(sid)
@@ -536,17 +525,15 @@ class trafix():
             sid = self.kdict[fd.fileobj]
         except KeyError:
             return
-        gen_data = self.recv_sk_gen_conn(fd.fileobj)
         try:
-            data = next(gen_data)
+            data = fd.fileobj.recv(SK_IO_CHUNK_LEN)
+            if len(data) == 0:
+                raise ConnectionError('recv_sk_gen_conn recv 0')
+            self.gen_send.send((MSG_ND+data,sid))  # send data
         except OSError as e:
             self.gen_send.send((MSG_CD,sid))
             self.clean(sid)
             log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
-            return
-        except StopIteration:
-            return
-        self.gen_send.send((MSG_ND+data,sid))  # send data
 
 
 def zombie_reaper():
