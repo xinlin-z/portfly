@@ -156,7 +156,7 @@ class trafix():
                 if not self.noack:
                     resend_time = time.time()
                 else:  # try resend
-                    if time.time()-resend_time > 0.7:
+                    if time.time()-resend_time > 0.6:
                         for rd in self.noack.values():
                             if self.pkt_sendto(b'R',rd) == 0:
                                 break
@@ -250,18 +250,19 @@ class trafix():
           except BlockingIOError:
             # send A packet
             if recv_data_flag:
-              try:
-                mb = int.to_bytes(recv_max_idx,4,BOL)
-                n = 0
-                cont = b''
-                for i in recv_idxlst:
-                  if i > recv_max_idx:
-                    cont += int.to_bytes(i,4,BOL)
-                    n += 1
-                assert n <= 256
-                self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)+mb+cont)
-              except BlockingIOError:
-                pass
+                try:
+                    n = 0
+                    cont = b''
+                    for i in recv_idxlst:
+                        if i > recv_max_idx:
+                            n += 1
+                            cont += int.to_bytes(i,4,BOL)
+                    assert n <= 256
+                    self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)
+                                         +int.to_bytes(recv_max_idx,4,BOL)
+                                         +cont)
+                except BlockingIOError:
+                  pass
             # return
             yield None, b'\x00', b''
             # resume
@@ -478,8 +479,18 @@ class trafix():
             sid, t, bmsg = next(self.gen_recv)
             if sid is not None:  # sid==0 is legal
                 log.debug('[%d] recv tunnel, type: %s, sid: %d', p,t,sid)
+                # data first
+                if t == MSG_ND:
+                    try:
+                        if sid in self.sdict.keys():
+                            self.sdict[sid].buf += bmsg
+                            self.send_sk_conn(sid)
+                    except OSError:
+                        self.gen_send.send((MSG_CD,sid))
+                        self.clean(sid)
+                        log.info('[%d] sid %d is closed while send', p, sid)
                 # new connection in client role
-                if t == MSG_NC:
+                elif t == MSG_NC:
                     try:
                         s = socket.create_connection(self.target, timeout=2)
                         log.info('[%d] connect target %s ok, sid %d',
@@ -503,20 +514,10 @@ class trafix():
                         self.clean(sid)
                         log.info('[%d] close sid %d by peer', p, sid)
                 # heartbeat
-                elif t == MSG_HB:
+                else:
+                    assert t == MSG_HB
                     self.heartbeat_max = 0
                     log.debug('[%d] recv heartbeat', p)
-                # data
-                else:
-                    assert t == MSG_ND
-                    try:
-                        if sid in self.sdict.keys():
-                            self.sdict[sid].buf += bmsg
-                            self.send_sk_conn(sid)
-                    except OSError:
-                        self.gen_send.send((MSG_CD,sid))
-                        self.clean(sid)
-                        log.info('[%d] sid %d is closed while send', p, sid)
             else:
                 return
 
