@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local/Remote Port Forwarding in Python.
+Local/Remote Port Forwarding by TCP/UDP in Python.
 
 Features:
 1, Non-Blocking Socket.
@@ -141,6 +141,7 @@ class trafix():
     def send_sk_gen_udp(self, sk):
         data = b''
         resend_time = time.time()
+        stop = False
         while True:
             # yield includes none ack udp packets
             noack_size = 0
@@ -154,15 +155,17 @@ class trafix():
             try:
                 # if noack is empty, update resend time
                 if not self.noack:
+                    stop = False
                     resend_time = time.time()
                 else:  # try resend
+                    stop = True
                     if time.time()-resend_time > 0.6:
                         for rd in self.noack.values():
                             if self.pkt_sendto(b'R',rd) == 0:
                                 break
                         resend_time = time.time()
                 # normal send
-                while len(data):
+                while not stop and len(data):
                     self.uidx += 1
                     pkt = data[:UDP_SEND_LEN] + int.to_bytes(self.uidx,4,BOL)
                     data = data[UDP_SEND_LEN:]
@@ -261,6 +264,7 @@ class trafix():
                     self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)
                                          +int.to_bytes(recv_max_idx,4,BOL)
                                          +cont)
+                    log.debug('send A packet, n=%d' % n)
                 except BlockingIOError:
                   pass
             # return
