@@ -123,10 +123,10 @@ class trafix():
         else:
             plen = len(pkt)
             idx = int.from_bytes(pkt[plen-4-elen:plen-elen], BOL)
-            log.debug('try [%d] --> %s %d', self.port, pt, idx)
+            log.debug(f'try [{self.port}] --> {pt} {idx}')
 
         if not self.taddr:
-            log.debug('do not have udp target address yet!')
+            log.debug('pkt_sendto: do not have udp target address yet!')
             return 0
 
         # [re]send! Every time the xor byte is different.
@@ -134,8 +134,8 @@ class trafix():
         if slen == plen+(1 if self.x else 0):
             return 1
         else:
-            log.error('[%d] sendto return less! %s plen=%d slen=%d',
-                                            self.port, pt, plen, slen)
+            log.error(f'[{self.port}] pkt_sendto return less!'
+                      f' {pt} {plen=} {slen=}')
             return 0
 
     def send_sk_gen_udp(self, sk):
@@ -157,7 +157,7 @@ class trafix():
                 if not self.noack:
                     stop = False
                     resend_time = time.time()
-                else:  # try resend
+                else:  # stop sending new, try resend
                     stop = True
                     if time.time()-resend_time > 0.6:
                         for rd in self.noack.values():
@@ -186,10 +186,10 @@ class trafix():
             # init target addr
             if not self.taddr:
                 self.taddr = taddr
-                log.warning('init udp target addr %s', str(taddr))
+                log.warning(f'init udp target addr {str(taddr)}')
             # check taddr
             elif taddr != self.taddr:
-                log.error('udp target addr changed, packet dropped!')
+                log.error('recv udp target address changed, packet dropped!')
                 continue
             # dx
             if self.x:
@@ -201,12 +201,12 @@ class trafix():
                 if self.md5:
                     rd, md5 = rd[:-16], rd[-16:]
                     if hashlib.md5(rd).digest() != md5:
-                        log.error('recv illegal packet, md5 wrong!')
+                        log.error('recv illegal udp packet, md5 wrong!')
                         continue
                 # check type
                 t = rd[2:3]
                 if t not in UDP_PKT_TYPES:
-                    log.error('recv illegal packet, type wrong!')
+                    log.error('recv illegal udp packet, type wrong!')
                     continue
                 # get recv idx
                 recv_idx = int.from_bytes(rd[-4:], BOL)
@@ -220,13 +220,13 @@ class trafix():
                     for i in list(self.noack.keys()):
                         if i <= rmidx:
                             self.noack.pop(i, None)
-                    log.debug('[%d] A <-- n:%d max:%d noack:%d fdata:%d',
-                                    self.port, num, rmidx,
-                                    len(self.noack), len(self.fdata))
+                    log.debug(f'[{self.port}] A <-- n:{num} max:{rmidx}'
+                              f' noack:{len(self.noack)}'
+                              f' fdata:{len(self.fdata)}')
                 # if data
                 else:  # t == b'D':
                     recv_data_flag = True
-                    log.debug('[%d] D <-- %d %d', self.port,recv_idx,plen)
+                    log.debug(f'[{self.port}] D <-- {recv_idx} {plen}')
                     recv_idxlst.append(recv_idx)
                     if recv_idx>recv_max_idx and recv_idx not in self.fdata:
                         # save data
@@ -249,7 +249,7 @@ class trafix():
                     if len(recv_idxlst) >= 256:
                         raise BlockingIOError()
             else:
-                log.error('recv illegal packet, length wrong!')
+                log.error('recv illegal udp packet, length wrong!')
           except BlockingIOError:
             # send A packet
             if recv_data_flag:
@@ -264,7 +264,7 @@ class trafix():
                     self.pkt_sendto(b'A', int.to_bytes(n,4,BOL)
                                          +int.to_bytes(recv_max_idx,4,BOL)
                                          +cont)
-                    log.debug('send A packet, n=%d' % n)
+                    log.debug(f'send A packet with {n=}')
                 except BlockingIOError:
                   pass
             # return
@@ -319,7 +319,7 @@ class trafix():
                             md5 = data[epos:mlen]
                             if md5 != hashlib.md5(data[:epos]).digest():
                                 data = data[mlen:]
-                                log.error('[%d] tcp md5 error', self.port)
+                                log.error(f'[{self.port}] tcp md5 error')
                                 continue
                         sid = int.from_bytes(data[4:8], BOB)
                         msg = dx(data[8:epos]) if self.x else data[8:epos]
@@ -359,7 +359,7 @@ class trafix():
 
         # selector
         self.sel = selectors.DefaultSelector()
-        self.sel.register(self.sk, selectors.EVENT_READ, self._recv_tunnel)
+        self.sel.register(self.sk, selectors.EVENT_READ, self.recv_tunnel)
 
         #
         self.port = int(config['listen_port'])
@@ -371,7 +371,7 @@ class trafix():
             self.sid = 1          # sid, stream id
             self.sel.register(self.pserv,
                               selectors.EVENT_READ,
-                              self._new_connect_role_s)
+                              self.new_connect)
         else:
             self.target = (config['target_ip'], config['target_port'])
 
@@ -394,7 +394,7 @@ class trafix():
                 for fd, _ in self.sel.select(sel_wait):
                     fd.data(fd)
         except Exception as e:
-            log.error('[%d] exception: %s', self.port, str(e))
+            log.error(f'[{self.port}] exception: {e!r}')
             log.exception(e)
             for skb in self.sdict.values():
                 silent_close_socket(skb.sk)
@@ -403,7 +403,7 @@ class trafix():
         self.sel.unregister(self.sk)
         if self.role == 's':
             silent_close_socket(self.pserv)
-        log.warning('[%d] closed', self.port)
+        log.warning(f'[{self.port}] closed')
 
     def send_sk_conn(self, sid: int) -> int:
         skb = self.sdict[sid]
@@ -425,7 +425,7 @@ class trafix():
             try:
                 sk_left += self.send_sk_conn(sid)
             except OSError as e:
-                log.info('[%d] sid %d down while flush',self.port,sid,str(e))
+                log.info(f'[{self.port}] sid {sid} down while flush, {e!r}')
                 tunnel_left = self.gen_send.send((MSG_CD,sid))
                 self.clean(sid)
         return tunnel_left + sk_left
@@ -436,7 +436,7 @@ class trafix():
         now = time.time()
         if now - self.heartbeat_time > HB_BASE_INTV:
             self.gen_send.send((MSG_HB,0))
-            log.info('[%d] send heartbeat', self.port)
+            log.info(f'[{self.port}] send heartbeat')
             self.heartbeat_time = now + random.randint(0,39)
             self.heartbeat_max += 1
 
@@ -453,20 +453,20 @@ class trafix():
             silent_close_socket(sk)
             self.sel.unregister(sk)
             self.unreg += 1
-            log.debug('[%d] unreg %d', self.port, self.unreg)
+            log.debug(f'[{self.port}] unreg {self.unreg}')
 
-    def _new_connect_role_s(self, fd):
+    def new_connect(self, fd):
         assert fd.fileobj == self.pserv
         try:
             while True:
                 s, addr = self.pserv.accept()
                 self.gen_send.send((MSG_NC, self.sid))
-                log.info('[%d] accept %s, sid %d',self.port,str(addr),self.sid)
+                log.info(f'[{self.port}] accept {addr!s}, sid {self.sid}')
                 s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
                 s.setblocking(False)  # set nonblocking
-                self.sel.register(s, selectors.EVENT_READ, self._recv_conn)
+                self.sel.register(s, selectors.EVENT_READ, self.recv_conn)
                 self.reg += 1
-                log.debug('[%d] reg %d', self.port, self.reg)
+                log.debug(f'[{self.port}] reg {self.reg}')
                 self.sdict[self.sid] = trafix.sk_buf(s)
                 self.kdict[s] = self.sid
                 # update sid, 0 is used for heartbeat
@@ -477,12 +477,12 @@ class trafix():
         except BlockingIOError:
             pass
 
-    def _recv_tunnel(self, fd):
+    def recv_tunnel(self, fd):
         p = self.port
         while True:
             sid, t, bmsg = next(self.gen_recv)
             if sid is not None:  # sid==0 is legal
-                log.debug('[%d] recv tunnel, type: %s, sid: %d', p,t,sid)
+                log.debug(f'[{p}] recv tunnel, type: {t}, sid: {sid}')
                 # data first
                 if t == MSG_ND:
                     try:
@@ -492,40 +492,37 @@ class trafix():
                     except OSError:
                         self.gen_send.send((MSG_CD,sid))
                         self.clean(sid)
-                        log.info('[%d] sid %d is closed while send', p, sid)
+                        log.info(f'[{p}] sid {sid} is closed while send')
                 # new connection in client role
                 elif t == MSG_NC:
                     try:
                         s = socket.create_connection(self.target, timeout=2)
-                        log.info('[%d] connect target %s ok, sid %d',
-                                 p, str(self.target), sid)
+                        log.info(f'[{p}] {self.target!s} connected, sid {sid}')
                         s.setsockopt(IPPROTO_TCP, TCP_NODELAY, True)
                         s.setblocking(False)
-                        self.sel.register(s,
-                                          selectors.EVENT_READ,
-                                          self._recv_conn)
+                        self.sel.register(s, selectors.EVENT_READ,
+                                          self.recv_conn)
                         self.sdict[sid] = trafix.sk_buf(s)
                         self.kdict[s] = sid
                         self.reg += 1
-                        log.debug('[%d] reg %d', p, self.reg)
+                        log.debug(f'[{p}] reg {self.reg}')
                     except OSError as e:
-                        log.error('[%d] connect %s failed: %s',
-                                  p, str(self.target), str(e))
+                        log.error(f'[{p}] connect {self.target!s} fail: {e!r}')
                         self.gen_send.send((MSG_CD,sid))
                 # connection down
                 elif t == MSG_CD:
                     if sid in self.sdict.keys():
                         self.clean(sid)
-                        log.info('[%d] close sid %d by peer', p, sid)
+                        log.info(f'[{p}] close sid {sid} by peer')
                 # heartbeat
                 else:
                     assert t == MSG_HB
                     self.heartbeat_max = 0
-                    log.debug('[%d] recv heartbeat', p)
+                    log.debug(f'[{p}] recv heartbeat')
             else:
                 return
 
-    def _recv_conn(self, fd):
+    def recv_conn(self, fd):
         try:
             sid = self.kdict[fd.fileobj]
         except KeyError:
@@ -538,14 +535,14 @@ class trafix():
         except OSError as e:
             self.gen_send.send((MSG_CD,sid))
             self.clean(sid)
-            log.info('[%d] sid %d donw when recv, %s',self.port,sid,str(e))
+            log.info(f'[{self.port}] sid {sid} donw when recv: {e!r}')
 
 
 def zombie_reaper():
     while True:
         try:
             pid, stat = os.wait()
-            log.warning('reap zombie pid %d status %s' % (pid,stat))
+            log.warning(f'reap zombie pid {pid} status {stat}')
         except ChildProcessError:
             time.sleep(60)
 
@@ -555,13 +552,13 @@ def server_main(saddr: tuple[str,int], key: bytes) -> None:
         threading.Thread(target=zombie_reaper,args=(),daemon=True).start()
         log.warning('init zombie reaper thread')
     serv = socket.create_server(saddr)
-    log.warning('init server listen at %s', str(saddr))
+    log.warning(f'init server listen at {saddr!s}')
 
     config = {}
     config['is_server'] = True
     while True:
         sk, faddr = serv.accept()
-        log.warning('accept connection from %s', str(faddr))
+        log.warning(f'accept connection from {faddr!s}')
         sk.settimeout(3)
         sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
         rf = sk.makefile('rb')
@@ -570,26 +567,26 @@ def server_main(saddr: tuple[str,int], key: bytes) -> None:
             if dxb(rf.readline().strip()) == keyhash:
                 # recv
                 forward_mode = dxb(rf.readline().strip())
-                log.warning('forwarding mode %s', forward_mode)
+                log.warning(f'forwarding mode {forward_mode}')
                 transprot = dxb(rf.readline().strip())
-                log.warning('transport protocol %s', transprot)
+                log.warning(f'transport protocol {transprot}')
                 udpport = int(dxb(rf.readline().strip()))
-                log.warning('udp port %d', udpport)
+                log.warning(f'udp port {udpport}')
                 if forward_mode == b'R':
                     listen_port = int(dxb(rf.readline().strip()))
                     g = eval((dxb(rf.readline().strip())).decode())
-                    log.warning('listen global %d', g)
+                    log.warning(f'listen global {g}')
                     pserv = socket.create_server(('' if g else '127.0.0.1',
                                                   listen_port))
-                    log.warning('create server at port %d', listen_port)
+                    log.warning(f'create server at port {listen_port}')
                 else:  # forward_mode == b'L':
                     target_ip = dxb(rf.readline().strip())
                     target_port = int(dxb(rf.readline().strip()))
-                    log.warning('target addr %s:%s', target_ip, target_port)
+                    log.warning(f'target {target_ip}:{target_port}')
                 x = eval((dxb(rf.readline().strip())).decode())
-                log.warning('encryption %d', x)
+                log.warning(f'encryption {x}')
                 md5 = eval((dxb(rf.readline().strip())).decode())
-                log.warning('md5 %d', md5)
+                log.warning(f'md5 {md5}', md5)
                 # reply
                 sk.sendall(cxb(hashlib.sha256(keyhash[:16]).digest()) + b'\n')
                 # process parameters
@@ -617,7 +614,7 @@ def server_main(saddr: tuple[str,int], key: bytes) -> None:
             else:
                 raise ValueError('magic bmsg error')
         except Exception as e:
-            log.error('exception %s', str(faddr))
+            log.error(f'exception {faddr!s}')
             log.exception(e)
             silent_close_socket(sk)
 
@@ -635,7 +632,7 @@ def client_main(config: dict, key: bytes) -> None:
             # connect server, send parameters
             keyhash = hashlib.sha256(key).digest()
             saddr = (config['server_ip'], config['server_port'])
-            sk = socket.create_connection(saddr)
+            sk = socket.create_connection(saddr, timeout=3)
             sk.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, True)
             sk.sendall(cxb(keyhash) + b'\n')
             sk.sendall(cxb(config['forward_mode'].encode()) + b'\n')
@@ -692,7 +689,7 @@ if __name__ == '__main__':
     parser.add_argument('--md5', action='store_true',
                         help='enhanced integrity check by md5')
     parser.add_argument('-g', action='store_true',
-                        help='listen at 0.0.0.0, default 127.0.0.1')
+                        help='listen at 0.0.0.0, default at 127.0.0.1')
     parser.add_argument('-k', '--key', required=True,
                         help='server access key string')
     parser.add_argument('settings',
