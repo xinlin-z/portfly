@@ -378,7 +378,6 @@ class trafix():
         self.sdict: dict[int, trafix.sk_buf] = {}
         self.kdict: dict[sk_t,int] = {}    # socket --> sid
         self.reg: int = 0
-        self.unreg: int = 0
 
         # send one HB to make udp server know its client
         self.heartbeat_time = time.time()
@@ -452,8 +451,8 @@ class trafix():
             self.kdict.pop(sk, None)
             silent_close_socket(sk)
             self.sel.unregister(sk)
-            self.unreg += 1
-            log.debug(f'[{self.port}] unreg {self.unreg}')
+            self.reg -= 1
+            log.debug(f'[{self.port}] --reg {self.reg}')
 
     def new_connect(self, fd):
         assert fd.fileobj == self.pserv
@@ -466,7 +465,7 @@ class trafix():
                 s.setblocking(False)  # set nonblocking
                 self.sel.register(s, selectors.EVENT_READ, self.recv_conn)
                 self.reg += 1
-                log.debug(f'[{self.port}] reg {self.reg}')
+                log.debug(f'[{self.port}] ++reg {self.reg}')
                 self.sdict[self.sid] = trafix.sk_buf(s)
                 self.kdict[s] = self.sid
                 # update sid, 0 is used for heartbeat
@@ -505,7 +504,7 @@ class trafix():
                         self.sdict[sid] = trafix.sk_buf(s)
                         self.kdict[s] = sid
                         self.reg += 1
-                        log.debug(f'[{p}] reg {self.reg}')
+                        log.debug(f'[{p}] ++reg {self.reg}')
                     except OSError as e:
                         log.error(f'[{p}] connect {self.target!s} fail: {e!r}')
                         self.gen_send.send((MSG_CD,sid))
